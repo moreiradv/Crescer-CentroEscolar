@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a2463" />
+  <meta name="description" content="Painel de Gestão Escolar do Centro Educacional Crescer." />
+  <title>Crescer • Gestão Escolar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="login-screen" id="loginScreen">
+    <section class="login-brand">
+      <div class="brand-orbit brand-orbit-one"></div>
+      <div class="brand-orbit brand-orbit-two"></div>
+      <div class="login-brand-content">
+        <img src="./assets/logo-crescer.png" alt="Centro Educacional Crescer" class="login-logo" />
+        <p class="eyebrow light">Gestão que acompanha. Escola que cresce.</p>
+        <h1>Da rotina aos indicadores, <span>tudo em um só lugar.</span></h1>
+        <p class="login-copy">Acompanhe agendas, frequência e evolução escolar com clareza para tomar decisões melhores, todos os dias.</p>
+        <div class="login-proof">
+          <div><strong>12</strong><span>turmas ativas</span></div>
+          <div><strong>98,4%</strong><span>registros do mês</span></div>
+          <div><strong>1 painel</strong><span>visão completa</span></div>
+        </div>
+      </div>
+    </section>
+    <section class="login-panel">
+      <form class="login-card" id="loginForm">
+        <div class="mobile-brand"><img src="./assets/logo-crescer.png" alt="Crescer" /></div>
+        <div class="login-heading">
+          <span class="soft-label">Acesso da gestão</span>
+          <h2>Bem-vindo de volta</h2>
+          <p>Entre com suas credenciais para acessar o painel.</p>
+        </div>
+        <label>Usuário
+          <span class="input-wrap"><span class="input-icon">@</span><input id="username" value="gestao" autocomplete="username" required /></span>
+        </label>
+        <label>Senha
+          <span class="input-wrap"><span class="input-icon">●</span><input id="password" type="password" value="crescer2026" autocomplete="current-password" required /><button class="eye-btn" type="button" id="togglePassword" aria-label="Mostrar senha">ver</button></span>
+        </label>
+        <div class="login-options"><label class="checkline"><input type="checkbox" checked /> Lembrar acesso</label><button class="link-btn" type="button">Esqueci a senha</button></div>
+        <button class="primary-btn login-btn" type="submit">Entrar no painel <span>→</span></button>
+        <div class="demo-note"><span>i</span><p><strong>Ambiente demonstrativo</strong>Use os dados preenchidos para explorar a plataforma.</p></div>
+        <p class="copyright">© 2026 Centro Educacional Crescer</p>
+      </form>
+    </section>
+  </div>
+
+  <div class="app-shell hidden" id="appShell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark"><img src="./assets/logo-crescer.png" alt="" /></div>
+        <div><strong>Crescer</strong><span>Gestão Escolar</span></div>
+      </div>
+      <nav class="main-nav" aria-label="Navegação principal">
+        <p class="nav-label">Visão geral</p>
+        <button class="nav-item active" data-page="dashboard"><span class="nav-icon">⌂</span><span>Dashboard</span></button>
+        <p class="nav-label">Acompanhamento</p>
+        <button class="nav-item" data-page="agendas"><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count">8</b></button>
+        <button class="nav-item" data-page="frequencia"><span class="nav-icon">✓</span><span>Frequência</span></button>
+        <button class="nav-item" data-page="indicadores"><span class="nav-icon">↗</span><span>Indicadores</span></button>
+        <p class="nav-label">Gestão</p>
+        <button class="nav-item" data-page="historico"><span class="nav-icon">↺</span><span>Histórico</span></button>
+        <button class="nav-item" data-page="usuarios"><span class="nav-icon">♙</span><span>Usuários</span></button>
+      </nav>
+      <div class="sidebar-help">
+        <div class="help-icon">?</div><strong>Precisa de ajuda?</strong><span>Fale com o suporte</span><button>Central de ajuda</button>
+      </div>
+      <div class="sidebar-user">
+        <span class="avatar">MS</span><div><strong>Marina Souza</strong><span>Diretora</span></div><button id="logoutBtn" aria-label="Sair">↪</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
+        <div class="top-search"><span>⌕</span><input id="globalSearch" placeholder="Buscar aluno, turma, disciplina..." /><kbd>⌘ K</kbd></div>
+        <div class="top-actions">
+          <button class="icon-button" aria-label="Ajuda">?</button>
+          <button class="icon-button notification" aria-label="Notificações">♢<span></span></button>
+          <div class="top-user"><span class="avatar">MS</span><div><strong>Marina Souza</strong><small>Diretora</small></div><span>⌄</span></div>
+        </div>
+      </header>
+
+      <div class="page active" id="page-dashboard">
+        <section class="page-head">
+          <div><p class="eyebrow">Sábado, 10 de outubro</p><h1>Bom dia, Marina <span>✦</span></h1><p>Aqui está o panorama da escola hoje.</p></div>
+          <div class="head-actions"><button class="secondary-btn" id="exportBtn">⇩ Exportar relatório</button><button class="primary-btn" data-open-modal="agendaModal">＋ Novo registro</button></div>
+        </section>
+
+        <section class="metric-grid">
+          <article class="metric-card"><div class="metric-icon blue">▦</div><div class="metric-top"><span>Turmas ativas</span><b class="up">↗ 2</b></div><strong>12</strong><small>Educação Infantil ao 5º ano</small></article>
+          <article class="metric-card"><div class="metric-icon violet">♙</div><div class="metric-top"><span>Alunos</span><b class="up">↗ 4,2%</b></div><strong>284</strong><small>12 novos neste mês</small></article>
+          <article class="metric-card"><div class="metric-icon teal">♧</div><div class="metric-top"><span>Professores</span><b>—</b></div><strong>24</strong><small>Equipe pedagógica ativa</small></article>
+          <article class="metric-card featured"><div class="metric-icon green">✓</div><div class="metric-top"><span>Frequência hoje</span><b class="up">↗ 1,8%</b></div><strong>92,6%</strong><small>263 de 284 alunos</small><div class="progress"><i style="width:92.6%"></i></div></article>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel attendance-overview">
+            <div class="panel-head"><div><h2>Frequência de hoje</h2><p>Visão geral de todas as turmas</p></div><button class="chip-select">Hoje <span>⌄</span></button></div>
+            <div class="attendance-content">
+              <div class="donut" aria-label="92,6% de frequência"><div><strong>92,6%</strong><span>frequência</span></div></div>
+              <div class="attendance-legend">
+                <div><span class="legend-dot present"></span><p>Presentes<small>Alunos em sala</small></p><strong>263</strong><b>92,6%</b></div>
+                <div><span class="legend-dot late"></span><p>Atrasados<small>Chegaram após o horário</small></p><strong>8</strong><b>2,8%</b></div>
+                <div><span class="legend-dot justified"></span><p>Justificados<small>Ausência justificada</small></p><strong>5</strong><b>1,8%</b></div>
+                <div><span class="legend-dot absent"></span><p>Não presentes<small>Sem justificativa</small></p><strong>8</strong><b>2,8%</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel quick-actions">
+            <div class="panel-head"><div><h2>Ações rápidas</h2><p>O que deseja fazer?</p></div></div>
+            <div class="quick-grid">
+              <button data-open-modal="agendaModal"><span class="quick-icon blue">＋</span><strong>Nova agenda</strong><small>Registrar atividade</small></button>
+              <button data-page-link="frequencia"><span class="quick-icon green">✓</span><strong>Lançar frequência</strong><small>Registrar presença</small></button>
+              <button data-page-link="agendas"><span class="quick-icon orange">⌕</span><strong>Consultar agenda</strong><small>Ver todos os registros</small></button>
+              <button data-page-link="indicadores"><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
+            </div>
+          </article>
+
+          <article class="panel week-chart">
+            <div class="panel-head"><div><h2>Evolução da frequência</h2><p>Comparativo dos últimos 7 dias letivos</p></div><button class="chip-select">Últimos 7 dias <span>⌄</span></button></div>
+            <div class="chart-wrap">
+              <div class="y-axis"><span>100%</span><span>95%</span><span>90%</span><span>85%</span><span>80%</span></div>
+              <svg class="line-chart" viewBox="0 0 700 210" preserveAspectRatio="none" role="img" aria-label="Gráfico de frequência semanal">
+                <defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2457e6" stop-opacity=".22"/><stop offset="1" stop-color="#2457e6" stop-opacity="0"/></linearGradient></defs>
+                <g class="grid-lines"><line x1="0" y1="20" x2="700" y2="20"/><line x1="0" y1="75" x2="700" y2="75"/><line x1="0" y1="130" x2="700" y2="130"/><line x1="0" y1="185" x2="700" y2="185"/></g>
+                <path d="M0 105 C55 92 75 65 116 76 S190 112 233 91 S310 41 350 50 S425 81 466 68 S540 95 583 82 S650 42 700 55 L700 210 L0 210 Z" fill="url(#chartFill)"/>
+                <path class="chart-line" d="M0 105 C55 92 75 65 116 76 S190 112 233 91 S310 41 350 50 S425 81 466 68 S540 95 583 82 S650 42 700 55"/>
+                <g class="chart-points"><circle cx="0" cy="105" r="5"/><circle cx="116" cy="76" r="5"/><circle cx="233" cy="91" r="5"/><circle cx="350" cy="50" r="5"/><circle cx="466" cy="68" r="5"/><circle cx="583" cy="82" r="5"/><circle cx="700" cy="55" r="5"/></g>
+              </svg>
+              <div class="x-axis"><span>Qui, 01</span><span>Sex, 02</span><span>Seg, 05</span><span>Ter, 06</span><span>Qua, 07</span><span>Qui, 08</span><span>Sex, 09</span></div>
+            </div>
+            <div class="chart-summary"><span>Média do período <strong>93,1%</strong></span><span class="up">↗ 2,4% em relação à semana anterior</span></div>
+          </article>
+
+          <article class="panel recent-agendas">
+            <div class="panel-head"><div><h2>Agendas recentes</h2><p>Últimos registros realizados</p></div><button class="link-btn" data-page-link="agendas">Ver todas →</button></div>
+            <div class="timeline" id="recentAgendaList"></div>
+          </article>
+        </section>
+
+        <section class="attention-banner">
+          <div class="attention-icon">!</div><div><h3>Atenção necessária</h3><p><strong>3 turmas</strong> ainda não tiveram a frequência registrada hoje.</p></div><button data-page-link="frequencia">Ver turmas pendentes →</button>
+        </section>
+      </div>
+
+      <div class="page" id="page-agendas">
+        <section class="page-head"><div><p class="eyebrow">Acompanhamento pedagógico</p><h1>Agenda escolar</h1><p>Consulte e acompanhe todos os registros da escola.</p></div><button class="primary-btn" data-open-modal="agendaModal">＋ Nova agenda</button></section>
+        <section class="panel filters-panel"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="agendaSearch" placeholder="Conteúdo, turma ou responsável..." /></span></label><label>Período<select id="agendaPeriod"><option>Todos os períodos</option><option>Hoje</option><option>Esta semana</option><option>Este mês</option></select></label><label>Turma<select id="agendaClass"><option value="">Todas as turmas</option><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Situação<select id="agendaStatus"><option value="">Todas</option><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label></div></section>
+        <section class="panel data-panel"><div class="table-head"><div><h2>Registros da escola</h2><p><span id="agendaCount">8</span> agendas encontradas</p></div><button class="secondary-btn">⇩ Exportar</button></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turma</th><th>Disciplina</th><th>Conteúdo</th><th>Situação</th><th>Registrado por</th><th></th></tr></thead><tbody id="agendaTable"></tbody></table></div></section>
+      </div>
+
+      <div class="page" id="page-frequencia">
+        <section class="page-head"><div><p class="eyebrow">Presença dos alunos</p><h1>Frequência</h1><p>Registre e acompanhe a presença de cada turma.</p></div><button class="primary-btn" id="saveAttendance">✓ Salvar frequência</button></section>
+        <section class="frequency-toolbar panel"><div><label>Data<input type="date" value="2026-10-10" /></label><label>Turma<select><option>3º Ano A • 22 alunos</option><option>2º Ano A • 22 alunos</option><option>4º Ano B • 24 alunos</option></select></label><div class="attendance-key"><span><i class="present"></i>Presente</span><span><i class="late"></i>Atrasado</span><span><i class="justified"></i>Justificado</span><span><i class="absent"></i>Não presente</span></div></section>
+        <section class="attendance-summary-row"><article><span class="legend-dot present"></span><div><small>Presentes</small><strong id="sumPresent">18</strong></div></article><article><span class="legend-dot late"></span><div><small>Atrasados</small><strong id="sumLate">1</strong></div></article><article><span class="legend-dot justified"></span><div><small>Justificados</small><strong id="sumJustified">1</strong></div></article><article><span class="legend-dot absent"></span><div><small>Não presentes</small><strong id="sumAbsent">2</strong></div></article><article class="percent"><small>Frequência da turma</small><strong id="sumPercent">86,4%</strong><div class="progress"><i id="sumBar" style="width:86.4%"></i></div></article></section>
+        <section class="panel attendance-table-panel"><div class="table-head"><div><h2>3º Ano A</h2><p>Professor regente: Carlos Lima • Turno matutino</p></div><div class="bulk-actions"><span>Marcar todos como</span><button data-bulk="present">Presentes</button></div></div><div class="student-list" id="studentList"></div></section>
+      </div>
+
+      <div class="page" id="page-indicadores">
+        <section class="page-head"><div><p class="eyebrow">Dados para decidir</p><h1>Indicadores</h1><p>Analise a evolução da escola, das turmas e dos alunos.</p></div><div class="head-actions"><button class="secondary-btn">Este mês ⌄</button><button class="primary-btn">⇩ Gerar relatório</button></div></section>
+        <section class="insight-hero"><div><span class="soft-label">Resumo de outubro</span><h2>A escola mantém um bom ritmo de frequência.</h2><p>A média subiu <strong>2,4%</strong> em relação ao mês anterior. O 5º Ano A tem o melhor índice do período.</p></div><div class="hero-score"><strong>93,1</strong><span>índice geral</span><b>↗ +2,4%</b></div></section>
+        <section class="indicator-grid"><article class="panel"><div class="panel-head"><div><h2>Frequência por turma</h2><p>Ranking do mês atual</p></div></div><div class="rank-list"><div><span>1</span><p><strong>5º Ano A</strong><small>26 alunos</small></p><div class="rank-bar"><i style="width:97%"></i></div><b>97,0%</b></div><div><span>2</span><p><strong>2º Ano A</strong><small>22 alunos</small></p><div class="rank-bar"><i style="width:95%"></i></div><b>95,2%</b></div><div><span>3</span><p><strong>4º Ano B</strong><small>24 alunos</small></p><div class="rank-bar"><i style="width:93%"></i></div><b>93,8%</b></div><div><span>4</span><p><strong>3º Ano A</strong><small>22 alunos</small></p><div class="rank-bar warn"><i style="width:89%"></i></div><b>89,6%</b></div></div></article><article class="panel"><div class="panel-head"><div><h2>Distribuição do período</h2><p>1.988 registros processados</p></div></div><div class="distribution"><div class="big-donut"></div><div><p><i class="present"></i><span>Presentes</span><strong>1.851</strong></p><p><i class="late"></i><span>Atrasados</span><strong>54</strong></p><p><i class="justified"></i><span>Justificados</span><strong>39</strong></p><p><i class="absent"></i><span>Não presentes</span><strong>44</strong></p></div></div></article></section>
+        <section class="panel risk-panel"><div class="panel-head"><div><h2>Alunos que pedem atenção</h2><p>Frequência abaixo de 85% no período</p></div><button class="link-btn">Ver análise completa →</button></div><div class="risk-grid"><div><span class="avatar peach">JS</span><p><strong>João Santos</strong><small>3º Ano A</small></p><b>81,2%</b><em>5 faltas</em></div><div><span class="avatar lilac">AM</span><p><strong>Arthur Melo</strong><small>4º Ano B</small></p><b>82,6%</b><em>4 faltas</em></div><div><span class="avatar mint">LC</span><p><strong>Lara Costa</strong><small>2º Ano A</small></p><b>84,1%</b><em>3 faltas</em></div></div></section>
+      </div>
+
+      <div class="page" id="page-historico">
+        <section class="page-head"><div><p class="eyebrow">Rastreabilidade</p><h1>Histórico de registros</h1><p>Saiba quem registrou, o que foi alterado e quando.</p></div><button class="secondary-btn">⇩ Exportar auditoria</button></section>
+        <section class="panel audit-panel"><div class="audit-date">Hoje, 10 de outubro</div><div class="audit-item"><span class="audit-icon green">✓</span><div><strong>Frequência registrada</strong><p>Marina Souza registrou a frequência do <b>3º Ano A</b>.</p><small>Hoje, 08:14 • 22 alunos</small></div><button>Ver registro</button></div><div class="audit-item"><span class="audit-icon blue">▤</span><div><strong>Agenda adicionada</strong><p>Ana Silva registrou “Leitura e interpretação de texto” para o <b>2º Ano A</b>.</p><small>Hoje, 07:56 • Língua Portuguesa</small></div><button>Ver registro</button></div><div class="audit-item"><span class="audit-icon orange">✎</span><div><strong>Atividade atualizada</strong><p>Paulo Mendes alterou a situação da atividade para <b>Concluída</b>.</p><small>Hoje, 07:42 • 4º Ano B</small></div><button>Ver registro</button></div><div class="audit-date">Ontem, 9 de outubro</div><div class="audit-item"><span class="audit-icon violet">♙</span><div><strong>Usuário autorizado</strong><p>Marina Souza concedeu permissão de registro a <b>Juliana Prado</b>.</p><small>Ontem, 16:20 • Secretaria</small></div><button>Ver detalhes</button></div></section>
+      </div>
+
+      <div class="page" id="page-usuarios">
+        <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Gerencie quem pode consultar e registrar informações.</p></div><button class="primary-btn">＋ Novo usuário</button></section>
+        <section class="panel user-panel"><div class="user-cards"><article><span class="avatar">MS</span><div><strong>Marina Souza</strong><p>Diretora • Gestão</p><small>Último acesso: hoje, 08:02</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar peach">AS</span><div><strong>Ana Silva</strong><p>Coordenadora pedagógica</p><small>Pode registrar agenda e frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar mint">JP</span><div><strong>Juliana Prado</strong><p>Secretaria</p><small>Pode registrar frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar lilac">PM</span><div><strong>Paulo Mendes</strong><p>Professor</p><small>Pode registrar agenda e frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article></div></section>
+      </div>
+    </main>
+  </div>
+
+  <dialog class="modal" id="agendaModal">
+    <form method="dialog" id="agendaForm">
+      <div class="modal-head"><div><span class="soft-label">Novo registro</span><h2>Adicionar agenda escolar</h2><p>O responsável será identificado automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <div class="form-grid"><label>Data<input name="date" type="date" value="2026-10-10" required /></label><label>Turma<select name="class" required><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Disciplina<select name="subject"><option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option><option>História</option><option>Geografia</option><option>Artes</option></select></label><label>Situação<select name="status"><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label><label class="full">Conteúdo<textarea name="content" placeholder="Ex.: Leitura e interpretação de texto" required></textarea></label><label class="full">Atividade realizada<textarea name="activity" placeholder="Descreva a atividade realizada..."></textarea></label><fieldset class="full"><legend>Meio/material utilizado</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
+      <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a Marina Souza e ao horário do envio.</p></div>
+      <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" value="default" id="submitAgenda">Salvar agenda</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
+  <script src="./app.js"></script>
+</body>
+</html>

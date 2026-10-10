@@ -1,0 +1,70 @@
+const initialAgendas = [
+  {date:'10/10/2026',iso:'2026-10-10',class:'2º Ano A',subject:'Língua Portuguesa',content:'Leitura e interpretação de texto',activity:'Leitura coletiva e resolução de questões.',materials:['Livro','Impressão'],status:'Concluída',user:'Ana Silva',time:'07:56'},
+  {date:'10/10/2026',iso:'2026-10-10',class:'4º Ano B',subject:'Matemática',content:'Frações equivalentes',activity:'Exercícios práticos em duplas.',materials:['Livro','Atividade lúdica'],status:'Iniciada',user:'Paulo Mendes',time:'07:42'},
+  {date:'09/10/2026',iso:'2026-10-09',class:'3º Ano A',subject:'Ciências',content:'O ciclo da água',activity:'Experimento e registro no caderno.',materials:['Impressão','Outro: materiais recicláveis'],status:'Concluída',user:'Carlos Lima',time:'14:18'},
+  {date:'09/10/2026',iso:'2026-10-09',class:'5º Ano A',subject:'História',content:'Povos originários do Brasil',activity:'Roda de conversa e mapa mental.',materials:['Livro','Impressão'],status:'Concluída',user:'Beatriz Alves',time:'13:05'},
+  {date:'08/10/2026',iso:'2026-10-08',class:'2º Ano A',subject:'Matemática',content:'Adição com reagrupamento',activity:'Resolução coletiva.',materials:['Livro'],status:'Continuar posteriormente',user:'Ana Silva',time:'10:22'},
+  {date:'08/10/2026',iso:'2026-10-08',class:'4º Ano B',subject:'Geografia',content:'Regiões brasileiras',activity:'Construção de mapa ilustrado.',materials:['Impressão'],status:'Pendente',user:'Juliana Prado',time:'09:40'},
+  {date:'07/10/2026',iso:'2026-10-07',class:'3º Ano A',subject:'Artes',content:'Cores primárias e secundárias',activity:'Pintura guiada.',materials:['Atividade lúdica'],status:'Concluída',user:'Carlos Lima',time:'15:10'},
+  {date:'07/10/2026',iso:'2026-10-07',class:'5º Ano A',subject:'Língua Portuguesa',content:'Produção textual',activity:'Escrita de crônica curta.',materials:['Livro','Impressão'],status:'Concluída',user:'Beatriz Alves',time:'11:35'}
+];
+
+let agendas = JSON.parse(localStorage.getItem('crescerAgendas') || 'null') || initialAgendas;
+const students = ['Ana Clara Mendes','Arthur Oliveira','Beatriz Costa','Bernardo Lima','Caio Henrique','Cecília Alves','Davi Moreira','Elisa Rocha','Enzo Martins','Gabriela Sousa','Guilherme Silva','Helena Prado','João Santos','Laura Fernandes','Lucas Ribeiro','Manuela Gomes','Maria Eduarda','Miguel Araújo','Pedro Augusto','Rafaela Nunes','Samuel Reis','Sofia Carvalho'];
+let attendance = ['absent','present','present','present','present','present','present','present','present','present','late','present','absent','present','present','present','present','present','justified','present','present','present'];
+
+const $ = (s,root=document)=>root.querySelector(s);
+const $$ = (s,root=document)=>[...root.querySelectorAll(s)];
+
+function showPage(name){
+  $$('.page').forEach(p=>p.classList.toggle('active',p.id===`page-${name}`));
+  $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===name));
+  $('#sidebar').classList.remove('open');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function statusClass(status){return status==='Concluída'?'done':'pending'}
+function renderRecent(){
+  $('#recentAgendaList').innerHTML=agendas.slice(0,4).map(a=>`<div class="timeline-item"><span class="timeline-dot"></span><p><strong>${a.content}</strong><small>${a.class} • ${a.subject} • ${a.user}</small><span class="status-pill ${statusClass(a.status)}">${a.status}</span></p><span>${a.time}</span></div>`).join('');
+}
+function renderAgendas(){
+  const q=$('#agendaSearch').value.toLowerCase(); const cls=$('#agendaClass').value; const st=$('#agendaStatus').value;
+  const list=agendas.filter(a=>(!q||Object.values(a).flat().join(' ').toLowerCase().includes(q))&&(!cls||a.class===cls)&&(!st||a.status===st));
+  $('#agendaCount').textContent=list.length;
+  $('#agendaTable').innerHTML=list.map(a=>`<tr><td>${a.date}<br><small>${a.time}</small></td><td><strong>${a.class}</strong></td><td>${a.subject}</td><td><strong>${a.content}</strong><br><small>${a.materials.join(' • ')}</small></td><td><span class="status-pill ${statusClass(a.status)}">${a.status}</span></td><td>${a.user}</td><td><button class="row-action" title="Ver detalhes">•••</button></td></tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:40px">Nenhuma agenda encontrada com esses filtros.</td></tr>';
+}
+function renderStudents(){
+  $('#studentList').innerHTML=students.map((name,i)=>`<div class="student-row"><span class="avatar ${['','peach','mint','lilac'][i%4]}">${name.split(' ').map(n=>n[0]).slice(0,2).join('')}</span><div><strong>${name}</strong><small>Matrícula #${2026100+i}</small></div><div class="status-options" data-student="${i}"><button data-status="present">● Presente</button><button data-status="late">● Atrasado</button><button data-status="justified">● Justificado</button><button data-status="absent">● Não presente</button></div></div>`).join('');
+  attendance.forEach((status,i)=>$(`.status-options[data-student="${i}"] [data-status="${status}"]`)?.classList.add('selected'));
+  updateSummary();
+}
+function updateSummary(){
+  const counts={present:0,late:0,justified:0,absent:0};attendance.forEach(s=>counts[s]++);
+  $('#sumPresent').textContent=counts.present;$('#sumLate').textContent=counts.late;$('#sumJustified').textContent=counts.justified;$('#sumAbsent').textContent=counts.absent;
+  const pct=((counts.present+counts.late*.5)/attendance.length*100).toFixed(1).replace('.',',')+'%';$('#sumPercent').textContent=pct;$('#sumBar').style.width=pct.replace(',','.');
+}
+function toast(title='Registro salvo',message='As informações foram atualizadas.'){$('#toast strong').textContent=title;$('#toast p').textContent=message;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2800)}
+
+$('#loginForm').addEventListener('submit',e=>{e.preventDefault();$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');sessionStorage.setItem('crescerSession','1');renderRecent();renderAgendas();renderStudents()});
+$('#togglePassword').addEventListener('click',()=>{const p=$('#password');p.type=p.type==='password'?'text':'password';$('#togglePassword').textContent=p.type==='password'?'ver':'ocultar'});
+$('#logoutBtn').addEventListener('click',()=>{sessionStorage.removeItem('crescerSession');$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden')});
+$('#menuBtn').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
+$$('.nav-item').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.page)));
+$$('[data-page-link]').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.pageLink)));
+$$('[data-open-modal]').forEach(btn=>btn.addEventListener('click',()=>$('#'+btn.dataset.openModal).showModal()));
+['agendaSearch','agendaClass','agendaStatus'].forEach(id=>$('#'+id).addEventListener(id==='agendaSearch'?'input':'change',renderAgendas));
+$('#otherMaterialCheck').addEventListener('change',e=>$('#otherMaterial').classList.toggle('hidden',!e.target.checked));
+$('#submitAgenda').addEventListener('click',e=>{
+  e.preventDefault();const form=$('#agendaForm');if(!form.reportValidity())return;const fd=new FormData(form);const iso=fd.get('date');const materials=fd.getAll('material').map(m=>m==='Outro'&&$('#otherMaterial').value?`Outro: ${$('#otherMaterial').value}`:m);
+  agendas.unshift({date:iso.split('-').reverse().join('/'),iso,class:fd.get('class'),subject:fd.get('subject'),content:fd.get('content'),activity:fd.get('activity'),materials,status:fd.get('status'),user:'Marina Souza',time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
+  localStorage.setItem('crescerAgendas',JSON.stringify(agendas));renderAgendas();renderRecent();$('#agendaModal').close();form.reset();toast('Agenda registrada','O novo registro já aparece no histórico.');showPage('agendas');
+});
+$('#studentList').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;const group=b.parentElement;attendance[+group.dataset.student]=b.dataset.status;$$('button',group).forEach(x=>x.classList.toggle('selected',x===b));updateSummary()});
+$$('[data-bulk]').forEach(b=>b.addEventListener('click',()=>{attendance=attendance.map(()=>b.dataset.bulk);renderStudents()}));
+$('#saveAttendance').addEventListener('click',()=>toast('Frequência salva','22 registros vinculados a Marina Souza.'));
+$('#exportBtn').addEventListener('click',()=>toast('Relatório preparado','A demonstração simulou a exportação do relatório.'));
+$('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){showPage('agendas');$('#agendaSearch').value=e.target.value;renderAgendas()}});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus()}});
+
+renderRecent();renderAgendas();renderStudents();
+if(sessionStorage.getItem('crescerSession')){$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden')}
