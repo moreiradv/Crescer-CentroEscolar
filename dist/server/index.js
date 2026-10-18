@@ -5,12 +5,12 @@ const LOGO_BASE64 = "iVBORw0KGgoAAAANSUhEUgAABOYAAATmCAYAAACF/K4qAAAQAElEQVR4Aez
 
 const SESSION_COOKIE = "crescer_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
-const PBKDF2_ITERATIONS = 210000;
+const PBKDF2_ITERATIONS = 40000;
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador"]);
 const SEED_USERS = [
-  { username: "Thays Barros", name: "Thays Barros", role: "Coordenação", initials: "TB", salt: "b01679f5517d4cb32c4574cb48d96510", passwordHash: "0ac0ecd42796c22b3cd22f19670776913adc99b5d161ca1d9565011e7c2e2cac" },
-  { username: "Thayane Barros", name: "Thayane Barros", role: "Financeiro", initials: "TB", salt: "5f2b87a20a2fc37f745ba7338bbd847c", passwordHash: "e7485f084e03929bba8e87974f960ebfeae3720128a5a2d2c5556e84ed291764" },
-  { username: "Estagiárias 2026", name: "Estagiárias 2026", role: "Administrador", initials: "E26", salt: "1be9bcc4ffd55fb2e48734a588c549bf", passwordHash: "bf067d61de3095873784573220019b1088f4ff4fb8ffd132f95237cb022ad362" },
+  { username: "Thays Barros", name: "Thays Barros", role: "Coordenação", initials: "TB", salt: "653627e933cad1080cc44235a32b238c", passwordHash: "78d416075865200487080d916a7536cc3b1839f10059941e8f40e09273af4aa0", previousHash: "0ac0ecd42796c22b3cd22f19670776913adc99b5d161ca1d9565011e7c2e2cac" },
+  { username: "Thayane Barros", name: "Thayane Barros", role: "Financeiro", initials: "TB", salt: "4b5fd8796b6f2257674ba55378e3430b", passwordHash: "c95e5cb2cea878267157f84340d5973869f77c83bbc5d395fe937fcb5faceedd", previousHash: "e7485f084e03929bba8e87974f960ebfeae3720128a5a2d2c5556e84ed291764" },
+  { username: "Estagiárias 2026", name: "Estagiárias 2026", role: "Administrador", initials: "E26", salt: "0c478a30216e83d6ec85e59d553722be", passwordHash: "e7fc80643488689442ab273a9ae0b605d102b18671c09affa41dadeface01468", previousHash: "bf067d61de3095873784573220019b1088f4ff4fb8ffd132f95237cb022ad362" },
 ];
 
 function normalizeUsername(value) {
@@ -84,6 +84,8 @@ async function seedUsers(db) {
   const now = Date.now();
   await db.batch(SEED_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO users (username, username_key, name, role, initials, password_hash, password_salt, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
     .bind(user.username, normalizeUsername(user.username), user.name, user.role, user.initials, user.passwordHash, user.salt, now, now)));
+  await db.batch(SEED_USERS.map(user => db.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE username_key = ? AND password_hash = ?`)
+    .bind(user.passwordHash, user.salt, now, normalizeUsername(user.username), user.previousHash)));
 }
 
 async function readJson(request) {
