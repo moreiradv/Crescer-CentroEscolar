@@ -13,8 +13,37 @@ let agendas = JSON.parse(localStorage.getItem('crescerAgendas') || 'null') || in
 const students = ['Ana Clara Mendes','Arthur Oliveira','Beatriz Costa','Bernardo Lima','Caio Henrique','Cecília Alves','Davi Moreira','Elisa Rocha','Enzo Martins','Gabriela Sousa','Guilherme Silva','Helena Prado','João Santos','Laura Fernandes','Lucas Ribeiro','Manuela Gomes','Maria Eduarda','Miguel Araújo','Pedro Augusto','Rafaela Nunes','Samuel Reis','Sofia Carvalho'];
 let attendance = ['absent','present','present','present','present','present','present','present','present','present','late','present','absent','present','present','present','present','present','justified','present','present','present'];
 
+const accounts = [
+  {username:'Thays Barros',password:'Coord@Crescer26',name:'Thays Barros',role:'Coordenação',initials:'TB'},
+  {username:'Thayane Barros',password:'Fin@Crescer26',name:'Thayane Barros',role:'Financeiro',initials:'TB'},
+  {username:'Estagiárias 2026',password:'Admin@Crescer26',name:'Estagiárias 2026',role:'Administrador',initials:'E26'}
+];
+let currentUser = null;
+
 const $ = (s,root=document)=>root.querySelector(s);
 const $$ = (s,root=document)=>[...root.querySelectorAll(s)];
+
+const normalizeUsername = value => value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').toLowerCase();
+
+function applyCurrentUser(user){
+  currentUser=user;
+  $$('[data-user-name]').forEach(el=>el.textContent=user.name);
+  $$('[data-user-role]').forEach(el=>el.textContent=user.role);
+  $$('[data-user-initials]').forEach(el=>el.textContent=user.initials);
+  $('#welcomeName').textContent=user.name.split(' ')[0];
+  $('#traceUser').textContent=user.name;
+  $$('[data-admin-only]').forEach(el=>el.classList.toggle('hidden',user.role!=='Administrador'));
+}
+
+function openApp(user){
+  applyCurrentUser(user);
+  $('#loginError').classList.add('hidden');
+  $('#loginScreen').classList.add('hidden');
+  $('#appShell').classList.remove('hidden');
+  sessionStorage.setItem('crescerUser',user.username);
+  showPage('dashboard');
+  renderRecent();renderAgendas();renderStudents();
+}
 
 function showPage(name){
   $$('.page').forEach(p=>p.classList.toggle('active',p.id===`page-${name}`));
@@ -45,9 +74,16 @@ function updateSummary(){
 }
 function toast(title='Registro salvo',message='As informações foram atualizadas.'){$('#toast strong').textContent=title;$('#toast p').textContent=message;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2800)}
 
-$('#loginForm').addEventListener('submit',e=>{e.preventDefault();$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');sessionStorage.setItem('crescerSession','1');renderRecent();renderAgendas();renderStudents()});
+$('#loginForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const username=normalizeUsername($('#username').value);
+  const password=$('#password').value;
+  const user=accounts.find(account=>normalizeUsername(account.username)===username&&account.password===password);
+  if(!user){$('#loginError').classList.remove('hidden');$('#password').select();return}
+  openApp(user);
+});
 $('#togglePassword').addEventListener('click',()=>{const p=$('#password');p.type=p.type==='password'?'text':'password';$('#togglePassword').textContent=p.type==='password'?'ver':'ocultar'});
-$('#logoutBtn').addEventListener('click',()=>{sessionStorage.removeItem('crescerSession');$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden')});
+$('#logoutBtn').addEventListener('click',()=>{currentUser=null;sessionStorage.removeItem('crescerUser');$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden');$('#loginForm').reset();$('#loginError').classList.add('hidden')});
 $('#menuBtn').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
 $$('.nav-item').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.page)));
 $$('[data-page-link]').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.pageLink)));
@@ -56,15 +92,17 @@ $$('[data-open-modal]').forEach(btn=>btn.addEventListener('click',()=>$('#'+btn.
 $('#otherMaterialCheck').addEventListener('change',e=>$('#otherMaterial').classList.toggle('hidden',!e.target.checked));
 $('#submitAgenda').addEventListener('click',e=>{
   e.preventDefault();const form=$('#agendaForm');if(!form.reportValidity())return;const fd=new FormData(form);const iso=fd.get('date');const materials=fd.getAll('material').map(m=>m==='Outro'&&$('#otherMaterial').value?`Outro: ${$('#otherMaterial').value}`:m);
-  agendas.unshift({date:iso.split('-').reverse().join('/'),iso,class:fd.get('class'),subject:fd.get('subject'),content:fd.get('content'),activity:fd.get('activity'),materials,status:fd.get('status'),user:'Marina Souza',time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
+  agendas.unshift({date:iso.split('-').reverse().join('/'),iso,class:fd.get('class'),subject:fd.get('subject'),content:fd.get('content'),activity:fd.get('activity'),materials,status:fd.get('status'),user:currentUser?.name||'Usuário autorizado',time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
   localStorage.setItem('crescerAgendas',JSON.stringify(agendas));renderAgendas();renderRecent();$('#agendaModal').close();form.reset();toast('Agenda registrada','O novo registro já aparece no histórico.');showPage('agendas');
 });
 $('#studentList').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;const group=b.parentElement;attendance[+group.dataset.student]=b.dataset.status;$$('button',group).forEach(x=>x.classList.toggle('selected',x===b));updateSummary()});
 $$('[data-bulk]').forEach(b=>b.addEventListener('click',()=>{attendance=attendance.map(()=>b.dataset.bulk);renderStudents()}));
-$('#saveAttendance').addEventListener('click',()=>toast('Frequência salva','22 registros vinculados a Marina Souza.'));
+$('#saveAttendance').addEventListener('click',()=>toast('Frequência salva',`22 registros vinculados a ${currentUser?.name||'usuário autorizado'}.`));
 $('#exportBtn').addEventListener('click',()=>toast('Relatório preparado','A demonstração simulou a exportação do relatório.'));
 $('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){showPage('agendas');$('#agendaSearch').value=e.target.value;renderAgendas()}});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus()}});
 
 renderRecent();renderAgendas();renderStudents();
-if(sessionStorage.getItem('crescerSession')){$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden')}
+const savedUser=sessionStorage.getItem('crescerUser');
+const restoredUser=accounts.find(account=>account.username===savedUser);
+if(restoredUser)openApp(restoredUser);

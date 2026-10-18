@@ -37,14 +37,15 @@
           <p>Entre com suas credenciais para acessar o painel.</p>
         </div>
         <label>Usuário
-          <span class="input-wrap"><span class="input-icon">@</span><input id="username" value="gestao" autocomplete="username" required /></span>
+          <span class="input-wrap"><span class="input-icon">@</span><input id="username" placeholder="Digite seu usuário" autocomplete="username" required /></span>
         </label>
         <label>Senha
-          <span class="input-wrap"><span class="input-icon">●</span><input id="password" type="password" value="crescer2026" autocomplete="current-password" required /><button class="eye-btn" type="button" id="togglePassword" aria-label="Mostrar senha">ver</button></span>
+          <span class="input-wrap"><span class="input-icon">●</span><input id="password" type="password" placeholder="Digite sua senha" autocomplete="current-password" required /><button class="eye-btn" type="button" id="togglePassword" aria-label="Mostrar senha">ver</button></span>
         </label>
+        <p class="login-error hidden" id="loginError" role="alert">Usuário ou senha incorretos. Verifique os dados e tente novamente.</p>
         <div class="login-options"><label class="checkline"><input type="checkbox" checked /> Lembrar acesso</label><button class="link-btn" type="button">Esqueci a senha</button></div>
         <button class="primary-btn login-btn" type="submit">Entrar no painel <span>→</span></button>
-        <div class="demo-note"><span>i</span><p><strong>Ambiente demonstrativo</strong>Use os dados preenchidos para explorar a plataforma.</p></div>
+        <div class="demo-note"><span>i</span><p><strong>Acesso protegido</strong>Utilize as credenciais fornecidas pela administração da escola.</p></div>
         <p class="copyright">© 2026 Centro Educacional Crescer</p>
       </form>
     </section>
@@ -65,13 +66,13 @@
         <button class="nav-item" data-page="indicadores"><span class="nav-icon">↗</span><span>Indicadores</span></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="historico"><span class="nav-icon">↺</span><span>Histórico</span></button>
-        <button class="nav-item" data-page="usuarios"><span class="nav-icon">♙</span><span>Usuários</span></button>
+        <button class="nav-item" data-page="usuarios" data-admin-only><span class="nav-icon">♙</span><span>Usuários</span></button>
       </nav>
       <div class="sidebar-help">
         <div class="help-icon">?</div><strong>Precisa de ajuda?</strong><span>Fale com o suporte</span><button>Central de ajuda</button>
       </div>
       <div class="sidebar-user">
-        <span class="avatar">MS</span><div><strong>Marina Souza</strong><span>Diretora</span></div><button id="logoutBtn" aria-label="Sair">↪</button>
+        <span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><span data-user-role>Perfil</span></div><button id="logoutBtn" aria-label="Sair">↪</button>
       </div>
     </aside>
 
@@ -82,13 +83,13 @@
         <div class="top-actions">
           <button class="icon-button" aria-label="Ajuda">?</button>
           <button class="icon-button notification" aria-label="Notificações">♢<span></span></button>
-          <div class="top-user"><span class="avatar">MS</span><div><strong>Marina Souza</strong><small>Diretora</small></div><span>⌄</span></div>
+          <div class="top-user"><span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><small data-user-role>Perfil</small></div><span>⌄</span></div>
         </div>
       </header>
 
       <div class="page active" id="page-dashboard">
         <section class="page-head">
-          <div><p class="eyebrow">Sábado, 10 de outubro</p><h1>Bom dia, Marina <span>✦</span></h1><p>Aqui está o panorama da escola hoje.</p></div>
+          <div><p class="eyebrow">Painel da gestão escolar</p><h1>Olá, <span id="welcomeName">Usuário</span> <span>✦</span></h1><p>Aqui está o panorama da escola hoje.</p></div>
           <div class="head-actions"><button class="secondary-btn" id="exportBtn">⇩ Exportar relatório</button><button class="primary-btn" data-open-modal="agendaModal">＋ Novo registro</button></div>
         </section>
 
@@ -177,7 +178,7 @@
 
       <div class="page" id="page-usuarios">
         <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Gerencie quem pode consultar e registrar informações.</p></div><button class="primary-btn">＋ Novo usuário</button></section>
-        <section class="panel user-panel"><div class="user-cards"><article><span class="avatar">MS</span><div><strong>Marina Souza</strong><p>Diretora • Gestão</p><small>Último acesso: hoje, 08:02</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar peach">AS</span><div><strong>Ana Silva</strong><p>Coordenadora pedagógica</p><small>Pode registrar agenda e frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar mint">JP</span><div><strong>Juliana Prado</strong><p>Secretaria</p><small>Pode registrar frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar lilac">PM</span><div><strong>Paulo Mendes</strong><p>Professor</p><small>Pode registrar agenda e frequência</small></div><span class="status-active">Ativo</span><button>•••</button></article></div></section>
+        <section class="panel user-panel"><div class="user-cards"><article><span class="avatar peach">TB</span><div><strong>Thays Barros</strong><p>Coordenação</p><small>Acesso ao painel de gestão escolar</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar mint">TB</span><div><strong>Thayane Barros</strong><p>Financeiro</p><small>Acesso ao painel de gestão escolar</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar lilac">E26</span><div><strong>Estagiárias 2026</strong><p>Administrador</p><small>Gerenciamento completo do sistema</small></div><span class="status-active">Ativo</span><button>•••</button></article></div></section>
       </div>
     </main>
   </div>
@@ -186,7 +187,7 @@
     <form method="dialog" id="agendaForm">
       <div class="modal-head"><div><span class="soft-label">Novo registro</span><h2>Adicionar agenda escolar</h2><p>O responsável será identificado automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
       <div class="form-grid"><label>Data<input name="date" type="date" value="2026-10-10" required /></label><label>Turma<select name="class" required><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Disciplina<select name="subject"><option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option><option>História</option><option>Geografia</option><option>Artes</option></select></label><label>Situação<select name="status"><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label><label class="full">Conteúdo<textarea name="content" placeholder="Ex.: Leitura e interpretação de texto" required></textarea></label><label class="full">Atividade realizada<textarea name="activity" placeholder="Descreva a atividade realizada..."></textarea></label><fieldset class="full"><legend>Meio/material utilizado</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
-      <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a Marina Souza e ao horário do envio.</p></div>
+      <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a <b id="traceUser">usuário atual</b> e ao horário do envio.</p></div>
       <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" value="default" id="submitAgenda">Salvar agenda</button></div>
     </form>
   </dialog>
