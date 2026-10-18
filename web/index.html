@@ -177,8 +177,8 @@
       </div>
 
       <div class="page" id="page-usuarios">
-        <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Gerencie quem pode consultar e registrar informações.</p></div><button class="primary-btn">＋ Novo usuário</button></section>
-        <section class="panel user-panel"><div class="user-cards"><article><span class="avatar peach">TB</span><div><strong>Thays Barros</strong><p>Coordenação</p><small>Acesso ao painel de gestão escolar</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar mint">TB</span><div><strong>Thayane Barros</strong><p>Financeiro</p><small>Acesso ao painel de gestão escolar</small></div><span class="status-active">Ativo</span><button>•••</button></article><article><span class="avatar lilac">E26</span><div><strong>Estagiárias 2026</strong><p>Administrador</p><small>Gerenciamento completo do sistema</small></div><span class="status-active">Ativo</span><button>•••</button></article></div></section>
+        <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Cadastre, edite e remova os acessos da equipe.</p></div><button class="primary-btn" id="newUserBtn">＋ Novo usuário</button></section>
+        <section class="panel user-panel"><div class="user-cards" id="userCards"><p class="loading-state">Carregando usuários...</p></div></section>
       </div>
     </main>
   </div>
@@ -189,6 +189,22 @@
       <div class="form-grid"><label>Data<input name="date" type="date" value="2026-10-10" required /></label><label>Turma<select name="class" required><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Disciplina<select name="subject"><option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option><option>História</option><option>Geografia</option><option>Artes</option></select></label><label>Situação<select name="status"><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label><label class="full">Conteúdo<textarea name="content" placeholder="Ex.: Leitura e interpretação de texto" required></textarea></label><label class="full">Atividade realizada<textarea name="activity" placeholder="Descreva a atividade realizada..."></textarea></label><fieldset class="full"><legend>Meio/material utilizado</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
       <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a <b id="traceUser">usuário atual</b> e ao horário do envio.</p></div>
       <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" value="default" id="submitAgenda">Salvar agenda</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal user-modal" id="userModal">
+    <form method="dialog" id="userForm">
+      <div class="modal-head"><div><span class="soft-label" id="userModalLabel">Novo acesso</span><h2 id="userModalTitle">Adicionar usuário</h2><p>Defina os dados de acesso e o perfil no sistema.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <input type="hidden" id="userId" />
+      <div class="form-grid">
+        <label>Nome completo<input id="userFullName" placeholder="Nome do usuário" required /></label>
+        <label>Nome de usuário<input id="userLogin" placeholder="Usuário para entrar" required /></label>
+        <label>Perfil<select id="userRole" required><option>Coordenação</option><option>Financeiro</option><option>Administrador</option></select></label>
+        <label>Status<select id="userStatus" required><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
+        <label class="full">Senha<input id="userPassword" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /><small id="passwordHint">Obrigatória para novos usuários.</small></label>
+      </div>
+      <p class="login-error hidden" id="userFormError" role="alert"></p>
+      <div class="modal-actions user-modal-actions"><button class="danger-btn hidden" type="button" id="deleteUserBtn">Remover usuário</button><span></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar usuário</button></div>
     </form>
   </dialog>
 

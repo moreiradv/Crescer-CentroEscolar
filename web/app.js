@@ -13,17 +13,18 @@ let agendas = JSON.parse(localStorage.getItem('crescerAgendas') || 'null') || in
 const students = ['Ana Clara Mendes','Arthur Oliveira','Beatriz Costa','Bernardo Lima','Caio Henrique','Cecília Alves','Davi Moreira','Elisa Rocha','Enzo Martins','Gabriela Sousa','Guilherme Silva','Helena Prado','João Santos','Laura Fernandes','Lucas Ribeiro','Manuela Gomes','Maria Eduarda','Miguel Araújo','Pedro Augusto','Rafaela Nunes','Samuel Reis','Sofia Carvalho'];
 let attendance = ['absent','present','present','present','present','present','present','present','present','present','late','present','absent','present','present','present','present','present','justified','present','present','present'];
 
-const accounts = [
-  {username:'Thays Barros',password:'Coord@Crescer26',name:'Thays Barros',role:'Coordenação',initials:'TB'},
-  {username:'Thayane Barros',password:'Fin@Crescer26',name:'Thayane Barros',role:'Financeiro',initials:'TB'},
-  {username:'Estagiárias 2026',password:'Admin@Crescer26',name:'Estagiárias 2026',role:'Administrador',initials:'E26'}
-];
 let currentUser = null;
+let managedUsers = [];
 
 const $ = (s,root=document)=>root.querySelector(s);
 const $$ = (s,root=document)=>[...root.querySelectorAll(s)];
 
-const normalizeUsername = value => value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').toLowerCase();
+async function api(path,options={}){
+  const response=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json',...(options.headers||{})},...options});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.error||'Não foi possível concluir a operação.');
+  return data;
+}
 
 function applyCurrentUser(user){
   currentUser=user;
@@ -40,9 +41,29 @@ function openApp(user){
   $('#loginError').classList.add('hidden');
   $('#loginScreen').classList.add('hidden');
   $('#appShell').classList.remove('hidden');
-  sessionStorage.setItem('crescerUser',user.username);
   showPage('dashboard');
   renderRecent();renderAgendas();renderStudents();
+}
+
+function initialsFor(name){return name.split(/\s+/).filter(Boolean).map(part=>part[0]).slice(0,2).join('').toUpperCase()}
+function escapeHtml(value){return String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]))}
+
+async function loadUsers(){
+  if(currentUser?.role!=='Administrador')return;
+  const container=$('#userCards');
+  container.innerHTML='<p class="loading-state">Carregando usuários...</p>';
+  try{
+    const data=await api('/api/users');managedUsers=data.users;
+    container.innerHTML=managedUsers.map((user,index)=>`<article><span class="avatar ${['peach','mint','lilac',''][index%4]}">${escapeHtml(user.initials||initialsFor(user.name))}</span><div><strong>${escapeHtml(user.name)}</strong><p>${escapeHtml(user.role)}</p><small>Usuário: ${escapeHtml(user.username)}</small></div><span class="${user.status==='active'?'status-active':'status-inactive'}">${user.status==='active'?'Ativo':'Inativo'}</span><button type="button" data-edit-user="${user.id}" aria-label="Editar ${escapeHtml(user.name)}">•••</button></article>`).join('')||'<p class="loading-state">Nenhum usuário cadastrado.</p>';
+  }catch(error){container.innerHTML=`<p class="loading-state">${error.message}</p>`}
+}
+
+function openUserModal(user=null){
+  $('#userForm').reset();$('#userFormError').classList.add('hidden');$('#userFormError').textContent='';
+  $('#userId').value=user?.id||'';$('#userFullName').value=user?.name||'';$('#userLogin').value=user?.username||'';$('#userRole').value=user?.role||'Coordenação';$('#userStatus').value=user?.status||'active';
+  $('#userModalLabel').textContent=user?'Editar acesso':'Novo acesso';$('#userModalTitle').textContent=user?'Editar usuário':'Adicionar usuário';
+  $('#passwordHint').textContent=user?'Deixe em branco para manter a senha atual.':'Obrigatória para novos usuários.';$('#userPassword').required=!user;
+  $('#deleteUserBtn').classList.toggle('hidden',!user);$('#userModal').showModal();
 }
 
 function showPage(name){
@@ -50,6 +71,7 @@ function showPage(name){
   $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.page===name));
   $('#sidebar').classList.remove('open');
   window.scrollTo({top:0,behavior:'smooth'});
+  if(name==='usuarios')loadUsers();
 }
 
 function statusClass(status){return status==='Concluída'?'done':'pending'}
@@ -74,16 +96,17 @@ function updateSummary(){
 }
 function toast(title='Registro salvo',message='As informações foram atualizadas.'){$('#toast strong').textContent=title;$('#toast p').textContent=message;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2800)}
 
-$('#loginForm').addEventListener('submit',e=>{
+$('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
-  const username=normalizeUsername($('#username').value);
-  const password=$('#password').value;
-  const user=accounts.find(account=>normalizeUsername(account.username)===username&&account.password===password);
-  if(!user){$('#loginError').classList.remove('hidden');$('#password').select();return}
-  openApp(user);
+  const button=e.submitter;button.disabled=true;button.textContent='Entrando...';
+  try{
+    const data=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('#username').value,password:$('#password').value})});
+    openApp(data.user);$('#loginForm').reset();
+  }catch(error){$('#loginError').textContent=error.message;$('#loginError').classList.remove('hidden');$('#password').select()}
+  finally{button.disabled=false;button.innerHTML='Entrar no painel <span>→</span>'}
 });
 $('#togglePassword').addEventListener('click',()=>{const p=$('#password');p.type=p.type==='password'?'text':'password';$('#togglePassword').textContent=p.type==='password'?'ver':'ocultar'});
-$('#logoutBtn').addEventListener('click',()=>{currentUser=null;sessionStorage.removeItem('crescerUser');$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden');$('#loginForm').reset();$('#loginError').classList.add('hidden')});
+$('#logoutBtn').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}currentUser=null;$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden');$('#loginForm').reset();$('#loginError').classList.add('hidden')});
 $('#menuBtn').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
 $$('.nav-item').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.page)));
 $$('[data-page-link]').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.pageLink)));
@@ -102,7 +125,23 @@ $('#exportBtn').addEventListener('click',()=>toast('Relatório preparado','A dem
 $('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){showPage('agendas');$('#agendaSearch').value=e.target.value;renderAgendas()}});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus()}});
 
+$('#newUserBtn').addEventListener('click',()=>openUserModal());
+$('#userCards').addEventListener('click',e=>{const button=e.target.closest('[data-edit-user]');if(!button)return;const user=managedUsers.find(item=>item.id===Number(button.dataset.editUser));if(user)openUserModal(user)});
+$('#userForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const id=$('#userId').value;
+  const payload={name:$('#userFullName').value,username:$('#userLogin').value,role:$('#userRole').value,status:$('#userStatus').value,password:$('#userPassword').value};
+  const errorBox=$('#userFormError');errorBox.classList.add('hidden');
+  try{
+    await api(id?`/api/users/${id}`:'/api/users',{method:id?'PUT':'POST',body:JSON.stringify(payload)});
+    $('#userModal').close();await loadUsers();toast(id?'Usuário atualizado':'Usuário criado','As alterações foram salvas no banco de dados.');
+  }catch(error){errorBox.textContent=error.message;errorBox.classList.remove('hidden')}
+});
+$('#deleteUserBtn').addEventListener('click',async()=>{
+  const id=$('#userId').value;const user=managedUsers.find(item=>item.id===Number(id));if(!id||!user)return;
+  if(!confirm(`Remover o acesso de ${user.name}?`))return;
+  try{await api(`/api/users/${id}`,{method:'DELETE'});$('#userModal').close();await loadUsers();toast('Usuário removido','O acesso foi excluído do banco de dados.')}catch(error){$('#userFormError').textContent=error.message;$('#userFormError').classList.remove('hidden')}
+});
+
 renderRecent();renderAgendas();renderStudents();
-const savedUser=sessionStorage.getItem('crescerUser');
-const restoredUser=accounts.find(account=>account.username===savedUser);
-if(restoredUser)openApp(restoredUser);
+(async()=>{try{const data=await api('/api/session',{headers:{}});if(data.user)openApp(data.user)}catch{}})();
