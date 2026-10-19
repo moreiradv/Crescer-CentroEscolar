@@ -175,13 +175,14 @@ async function handleApi(request, env, path) {
   if (path === "/api/summary" && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Araguaina" }).format(new Date());
-    const [classes, students, agendas, teachers, attendanceToday, recordedClasses] = await db.batch([
+    const [classes, students, agendas, teachers, attendanceToday, recordedClasses, trendResult] = await db.batch([
       db.prepare(`SELECT COUNT(*) AS total FROM classes WHERE status = 'active'`),
       db.prepare(`SELECT COUNT(*) AS total FROM students WHERE status = 'active'`),
       db.prepare(`SELECT COUNT(*) AS total FROM agenda_entries`),
       db.prepare(`SELECT COUNT(*) AS total FROM users WHERE role = 'Professor' AND status = 'active'`),
       db.prepare(`SELECT status, COUNT(*) AS total FROM attendance_records WHERE attendance_date = ? GROUP BY status`).bind(today),
       db.prepare(`SELECT COUNT(DISTINCT class_id) AS total FROM attendance_records WHERE attendance_date = ?`).bind(today),
+      db.prepare(`SELECT attendance_date, COUNT(*) AS total, SUM(CASE WHEN status IN ('present','late') THEN 1 ELSE 0 END) AS attended FROM attendance_records GROUP BY attendance_date ORDER BY attendance_date DESC LIMIT 7`),
     ]);
     const attendance = { present: 0, late: 0, justified: 0, absent: 0 };
     attendanceToday.results.forEach(row => { attendance[row.status] = Number(row.total) || 0; });
@@ -196,6 +197,7 @@ async function handleApi(request, env, path) {
       attendanceTotal: totalAttendance,
       attendancePercent,
       pendingClasses: Math.max(0, Number(classes.results[0]?.total || 0) - Number(recordedClasses.results[0]?.total || 0)),
+      trend: trendResult.results.reverse().map(row => ({ date: row.attendance_date, total: Number(row.total), percent: row.total ? Math.round((Number(row.attended) / Number(row.total)) * 1000) / 10 : 0 })),
     });
   }
 

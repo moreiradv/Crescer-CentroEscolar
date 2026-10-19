@@ -126,19 +126,9 @@
           </article>
 
           <article class="panel week-chart">
-            <div class="panel-head"><div><h2>Evolução da frequência</h2><p>Comparativo dos últimos 7 dias letivos</p></div><button class="chip-select">Últimos 7 dias <span>⌄</span></button></div>
-            <div class="chart-wrap">
-              <div class="y-axis"><span>100%</span><span>95%</span><span>90%</span><span>85%</span><span>80%</span></div>
-              <svg class="line-chart" viewBox="0 0 700 210" preserveAspectRatio="none" role="img" aria-label="Gráfico de frequência semanal">
-                <defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2457e6" stop-opacity=".22"/><stop offset="1" stop-color="#2457e6" stop-opacity="0"/></linearGradient></defs>
-                <g class="grid-lines"><line x1="0" y1="20" x2="700" y2="20"/><line x1="0" y1="75" x2="700" y2="75"/><line x1="0" y1="130" x2="700" y2="130"/><line x1="0" y1="185" x2="700" y2="185"/></g>
-                <path d="M0 105 C55 92 75 65 116 76 S190 112 233 91 S310 41 350 50 S425 81 466 68 S540 95 583 82 S650 42 700 55 L700 210 L0 210 Z" fill="url(#chartFill)"/>
-                <path class="chart-line" d="M0 105 C55 92 75 65 116 76 S190 112 233 91 S310 41 350 50 S425 81 466 68 S540 95 583 82 S650 42 700 55"/>
-                <g class="chart-points"><circle cx="0" cy="105" r="5"/><circle cx="116" cy="76" r="5"/><circle cx="233" cy="91" r="5"/><circle cx="350" cy="50" r="5"/><circle cx="466" cy="68" r="5"/><circle cx="583" cy="82" r="5"/><circle cx="700" cy="55" r="5"/></g>
-              </svg>
-              <div class="x-axis"><span>Qui, 01</span><span>Sex, 02</span><span>Seg, 05</span><span>Ter, 06</span><span>Qua, 07</span><span>Qui, 08</span><span>Sex, 09</span></div>
-            </div>
-            <div class="chart-summary"><span>Média do período <strong>93,1%</strong></span><span class="up">↗ 2,4% em relação à semana anterior</span></div>
+            <div class="panel-head"><div><h2>Evolução da frequência</h2><p>Últimos 7 dias com lançamentos reais</p></div><span class="live-badge">Tempo real</span></div>
+            <div class="trend-chart" id="trendChart"><p class="empty-state">Os dias aparecerão aqui após o primeiro lançamento.</p></div>
+            <div class="chart-summary"><span>Média do período <strong id="trendAverage">0%</strong></span><span class="up" id="trendStatus">Aguardando dados</span></div>
           </article>
 
           <article class="panel recent-agendas">
