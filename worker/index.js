@@ -6,6 +6,7 @@ const LOGO_BASE64 = __LOGO_BASE64__;
 const SESSION_COOKIE = "crescer_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const PBKDF2_ITERATIONS = 40000;
+const GITHUB_ORIGIN = "https://moreiradv.github.io";
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador", "Professor"]);
 const MANAGER_ROLES = new Set(["Administrador", "Coordenação"]);
 const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Professor"]);
@@ -23,7 +24,7 @@ function safeUser(row) {
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": GITHUB_ORIGIN, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin", ...extraHeaders },
   });
 }
 
@@ -105,7 +106,8 @@ async function readJson(request) {
 }
 
 async function getSession(request, db) {
-  const token = parseCookies(request)[SESSION_COOKIE];
+  const authorization = request.headers.get("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : parseCookies(request)[SESSION_COOKIE];
   if (!token) return null;
   const tokenHash = await hashToken(token);
   const row = await db.prepare(`SELECT u.id, u.username, u.name, u.role, u.initials, u.status, s.id AS session_id, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? LIMIT 1`).bind(tokenHash).first();
@@ -164,7 +166,8 @@ async function handleApi(request, env, path) {
     await db.prepare(`INSERT INTO sessions (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)`)
       .bind(user.id, tokenHash, now + SESSION_SECONDS * 1000, now).run();
     await audit(db, user.id, "login", user.id, null);
-    return json({ user: safeUser(user) }, 200, { "set-cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}` });
+    const githubClient = request.headers.get("origin") === GITHUB_ORIGIN;
+    return json({ user: safeUser(user), ...(githubClient ? { token } : {}) }, 200, { "set-cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}` });
   }
 
   if (path === "/api/session" && request.method === "GET") {
@@ -173,7 +176,8 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/logout" && request.method === "POST") {
-    const token = parseCookies(request)[SESSION_COOKIE];
+    const authorization = request.headers.get("authorization") || "";
+    const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : parseCookies(request)[SESSION_COOKIE];
     if (token) await db.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(await hashToken(token)).run();
     return json({ ok: true }, 200, { "set-cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0` });
   }
@@ -462,6 +466,7 @@ export default {
     void ctx;
     const url = new URL(request.url);
     try {
+      if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": GITHUB_ORIGIN, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-max-age": "86400", "vary": "Origin" } });
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env, url.pathname);
       if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
       if (url.pathname === "/" || url.pathname === "/index.html") return new Response(INDEX_HTML, { headers: securityHeaders("text/html; charset=utf-8") });

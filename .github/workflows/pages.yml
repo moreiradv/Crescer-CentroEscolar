@@ -28,7 +28,7 @@ jobs:
       - name: Preparar página
         uses: actions/upload-pages-artifact@v4
         with:
-          path: github-pages
+          path: web
       - name: Publicar
         id: deployment
         uses: actions/deploy-pages@v4

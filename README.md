@@ -5,9 +5,9 @@ Sistema de gestão e acompanhamento escolar do Centro Educacional Crescer.
 ## Site online
 
 - Acesso principal: https://crescer-gestao-escolar.davi-gonzaga1.chatgpt.site
-- Atalho GitHub Pages: https://moreiradv.github.io/Crescer-CentroEscolar/
+- Endereço principal sem `.chatgpt.site`: https://moreiradv.github.io/Crescer-CentroEscolar/
 
-O endereço do GitHub Pages encaminha para a aplicação principal. O backend, a autenticação e o banco D1 permanecem no Sites, porque o GitHub Pages hospeda apenas arquivos estáticos.
+O GitHub Pages serve a interface completa. O backend seguro e o banco D1 permanecem no Sites, porque o GitHub Pages hospeda apenas arquivos estáticos. A comunicação acontece pela API autenticada e os usuários permanecem no endereço `github.io`.
 
 ## Funcionalidades
 
