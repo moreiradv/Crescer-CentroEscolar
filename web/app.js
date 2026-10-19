@@ -1,290 +1,64 @@
-let currentUser = null;
-let managedUsers = [];
-let classes = [];
-let students = [];
-let agendas = [];
-let attendance = [];
-let attendanceDirty = false;
+let currentUser=null,managedUsers=[],classes=[],students=[],agendas=[],attendance=[],indicators=null,auditEntries=[],attendanceDirty=false;
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const todayIso=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Araguaina'}).format(new Date());
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+const initials=n=>String(n||'').split(/\s+/).filter(Boolean).map(p=>p[0]).slice(0,2).join('').toUpperCase();
+const dateBr=v=>v?v.split('-').reverse().join('/'):'—', pct=v=>`${Number(v||0).toFixed(1).replace('.',',')}%`;
+const manager=()=>['Administrador','Coordenação'].includes(currentUser?.role), pedagogical=()=>['Administrador','Coordenação','Professor'].includes(currentUser?.role);
+$('#agendaDate').value=todayIso(); $('#attendanceDate').value=todayIso(); $('#classYear').value=Number(todayIso().slice(0,4));
 
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Araguaina' }).format(new Date());
-const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
-const initialsFor = name => String(name || '').split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join('').toUpperCase();
-const formatDate = value => value ? value.split('-').reverse().join('/') : '—';
+async function api(path,options={}){const r=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json',...(options.headers||{})},...options});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Não foi possível concluir a operação.');return d}
+function toast(t='Registro salvo',m='As informações foram atualizadas.'){$('#toast strong').textContent=t;$('#toast p').textContent=m;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),3200)}
+function csv(name,rows){if(!rows.length)return toast('Nada para exportar','Ainda não existem registros nesta área.');const h=Object.keys(rows[0]);const text=[h,...rows.map(r=>h.map(k=>r[k]??''))].map(l=>l.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([`\ufeff${text}`],{type:'text/csv;charset=utf-8'}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
 
-localStorage.removeItem('crescerAgendas');
-$('#agendaDate').value = todayIso();
-$('#attendanceDate').value = todayIso();
-$('#classYear').value = Number(todayIso().slice(0, 4));
+function applyUser(u){currentUser=u;$$('[data-user-name]').forEach(e=>e.textContent=u.name);$$('[data-user-role]').forEach(e=>e.textContent=u.role);$$('[data-user-initials]').forEach(e=>e.textContent=u.initials);$('#welcomeName').textContent=u.name.split(' ')[0];$('#traceUser').textContent=u.name;$$('[data-manager-only]').forEach(e=>e.classList.toggle('hidden',!manager()));$$('[data-pedagogical-only]').forEach(e=>e.classList.toggle('hidden',!pedagogical()));$('.quick-actions')?.classList.toggle('hidden',!pedagogical())}
+async function openApp(u){applyUser(u);$('#loginError').classList.add('hidden');$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');showPage('dashboard');await refresh()}
+function showPage(n){if((['usuarios','turmas','historico'].includes(n)&&!manager())||(['agendas','frequencia','indicadores'].includes(n)&&!pedagogical()))return toast('Acesso restrito','Seu perfil não possui acesso a esta área.');$$('.page').forEach(p=>p.classList.toggle('active',p.id===`page-${n}`));$$('.nav-item').forEach(i=>i.classList.toggle('active',i.dataset.page===n));$('#sidebar').classList.remove('open');scrollTo({top:0,behavior:'smooth'});if(n==='usuarios')loadUsers();if(n==='agendas')loadAgendas();if(n==='turmas')loadStudents($('#studentClassFilter').value);if(n==='frequencia')loadAttendance();if(n==='indicadores')loadIndicators();if(n==='historico')loadAudit()}
 
-async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(options.headers || {}) }, ...options });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a operação.');
-  return data;
-}
+async function loadSummary(silent=false){try{const d=await api('/api/summary');$('#metricClasses').textContent=d.classes;$('#metricStudents').textContent=d.students;$('#metricTeachers').textContent=d.teachers;$('#agendaNavCount').textContent=d.agendas;$('#metricAttendance').textContent=pct(d.attendancePercent);$('#metricAttendanceDetail').textContent=d.attendanceTotal?`${d.attendance.present+d.attendance.late} de ${d.attendanceTotal} registros`:'Nenhum lançamento hoje';$('#metricAttendanceBar').style.width=`${d.attendancePercent}%`;$('#todayPercent').textContent=pct(d.attendancePercent);$('#todayDonut').style.background=`conic-gradient(var(--blue) 0 ${d.attendancePercent}%,#e8edf8 ${d.attendancePercent}% 100%)`;for(const s of ['Present','Late','Justified','Absent']){const k=s.toLowerCase(),v=Number(d.attendance[k]||0);$(`#today${s}`).textContent=v;$(`#today${s}Pct`).textContent=d.attendanceTotal?pct(v/d.attendanceTotal*100):'0%'}$('#pendingClassCount').textContent=`${d.pendingClasses} ${d.pendingClasses===1?'turma':'turmas'}`}catch(e){if(!silent)toast('Erro ao atualizar o painel',e.message)}}
+const classOption=c=>`<option value="${c.id}">${esc(c.name)} • ${esc(c.shift)}</option>`;
+function replaceOptions(s,label){const old=s.value;s.innerHTML=`<option value="">${label}</option>${classes.filter(c=>c.status==='active').map(classOption).join('')}`;if([...s.options].some(o=>o.value===old))s.value=old}
+function populateClasses(){replaceOptions($('#agendaClass'),'Todas as turmas');replaceOptions($('#agendaFormClass'),'Selecione uma turma');replaceOptions($('#attendanceClass'),'Selecione uma turma');replaceOptions($('#studentClass'),'Selecione uma turma');replaceOptions($('#studentClassFilter'),'Todas as turmas')}
+function renderClasses(){const c=$('#classCards');if(!classes.length)return c.innerHTML='<article class="panel empty-state">Nenhuma turma cadastrada. Clique em “Nova turma” para começar.</article>';c.innerHTML=classes.map(k=>`<article class="panel class-card"><div class="class-card-top"><span class="metric-icon blue">▦</span><span class="${k.status==='active'?'status-active':'status-inactive'}">${k.status==='active'?'Ativa':'Inativa'}</span></div><h2>${esc(k.name)}</h2><p>${esc(k.grade_level)} • ${esc(k.shift)} • ${k.school_year}</p><div class="class-card-meta"><span><strong>${k.student_count}</strong> alunos</span><span><strong>${esc(k.teacher_name||'—')}</strong> professor</span></div><div class="card-actions"><button class="secondary-btn" data-edit-class="${k.id}">Editar</button><button class="primary-btn" data-add-student-class="${k.id}">＋ Aluno</button></div></article>`).join('')}
+async function loadClasses(s=false){try{const d=await api('/api/classes');classes=d.classes;populateClasses();renderClasses()}catch(e){if(!s)toast('Erro ao carregar turmas',e.message)}}
 
-function toast(title = 'Registro salvo', message = 'As informações foram atualizadas.') {
-  $('#toast strong').textContent = title;
-  $('#toast p').textContent = message;
-  $('#toast').classList.add('show');
-  setTimeout(() => $('#toast').classList.remove('show'), 2800);
-}
+function renderStudents(){$('#studentCount').textContent=students.length;$('#studentTable').innerHTML=students.length?students.map(s=>`<tr><td><strong>${esc(s.registration)}</strong></td><td>${esc(s.name)}</td><td>${esc(s.class_name||'Sem turma')}</td><td>${dateBr(s.birth_date)}</td><td>${esc(s.guardian_name||'—')}</td><td>${esc(s.guardian_phone||'—')}</td><td><button class="table-action" data-edit-student="${s.id}">Editar</button></td></tr>`).join(''):'<tr><td colspan="7" class="empty-cell">Nenhum aluno cadastrado neste filtro.</td></tr>'}
+async function loadStudents(id='',silent=false){if(!manager())return;try{const d=await api(`/api/students${id?`?class_id=${encodeURIComponent(id)}`:''}`);students=d.students;renderStudents()}catch(e){if(!silent)toast('Erro ao carregar alunos',e.message)}}
 
-function applyCurrentUser(user) {
-  currentUser = user;
-  $$('[data-user-name]').forEach(el => el.textContent = user.name);
-  $$('[data-user-role]').forEach(el => el.textContent = user.role);
-  $$('[data-user-initials]').forEach(el => el.textContent = user.initials);
-  $('#welcomeName').textContent = user.name.split(' ')[0];
-  $('#traceUser').textContent = user.name;
-  $$('[data-admin-only]').forEach(el => el.classList.toggle('hidden', user.role !== 'Administrador'));
-}
+function agendaPeriod(a,p){if(!p)return true;const t=new Date(`${todayIso()}T12:00:00`),d=new Date(`${a.agenda_date}T12:00:00`);if(p==='today')return a.agenda_date===todayIso();if(p==='week')return Math.abs(t-d)<=6*86400000;return a.agenda_date.slice(0,7)===todayIso().slice(0,7)}
+const statusClass=s=>s==='Concluída'?'done':'pending';
+function renderAgendas(){const q=$('#agendaSearch').value.toLowerCase(),cid=$('#agendaClass').value,s=$('#agendaStatus').value,p=$('#agendaPeriod').value;const list=agendas.filter(a=>(!q||Object.values(a).flat().join(' ').toLowerCase().includes(q))&&(!cid||String(a.class_id)===cid)&&(!s||a.status===s)&&agendaPeriod(a,p));$('#agendaCount').textContent=list.length;$('#agendaTable').innerHTML=list.length?list.map(a=>`<tr><td>${dateBr(a.agenda_date)}</td><td><strong>${esc(a.class_name||'Turma removida')}</strong></td><td>${esc(a.subject)}</td><td><strong>${esc(a.content)}</strong><br><small>${a.materials.map(esc).join(' • ')||'Sem material'}</small></td><td><span class="status-pill ${statusClass(a.status)}">${esc(a.status)}</span></td><td>${esc(a.created_by_name||'Usuário removido')}</td><td><button class="table-action" data-edit-agenda="${a.id}">Editar</button></td></tr>`).join(''):'<tr><td colspan="7" class="empty-cell">A agenda está limpa. Novos registros aparecerão aqui para todos.</td></tr>'}
+function renderRecent(){const r=agendas.slice(0,4);$('#recentAgendaList').innerHTML=r.length?r.map(a=>`<div class="timeline-item"><span class="timeline-dot"></span><p><strong>${esc(a.content)}</strong><small>${esc(a.class_name||'Turma removida')} • ${esc(a.subject)} • ${esc(a.created_by_name||'Usuário')}</small><span class="status-pill ${statusClass(a.status)}">${esc(a.status)}</span></p><span>${dateBr(a.agenda_date)}</span></div>`).join(''):'<p class="empty-state">Nenhuma agenda registrada ainda.</p>'}
+async function loadAgendas(s=false){if(!pedagogical())return;try{const d=await api('/api/agendas');agendas=d.agendas;renderAgendas();renderRecent()}catch(e){if(!s)toast('Erro ao carregar agenda',e.message)}}
 
-async function openApp(user) {
-  applyCurrentUser(user);
-  $('#loginError').classList.add('hidden');
-  $('#loginScreen').classList.add('hidden');
-  $('#appShell').classList.remove('hidden');
-  showPage('dashboard');
-  await refreshSharedData();
-}
+function attendanceSummary(){const c={present:0,late:0,justified:0,absent:0};attendance.forEach(a=>c[a.status]++);$('#sumPresent').textContent=c.present;$('#sumLate').textContent=c.late;$('#sumJustified').textContent=c.justified;$('#sumAbsent').textContent=c.absent;const p=attendance.length?(c.present+c.late)/attendance.length*100:0;$('#sumPercent').textContent=pct(p);$('#sumBar').style.width=`${p}%`}
+function renderAttendance(){const k=classes.find(c=>c.id===Number($('#attendanceClass').value));$('#attendanceClassTitle').textContent=k?.name||'Selecione uma turma';$('#attendanceClassMeta').textContent=k?`Professor regente: ${k.teacher_name||'não informado'} • Turno ${k.shift.toLowerCase()}`:'Os alunos cadastrados aparecerão aqui automaticamente.';$('#studentList').innerHTML=attendance.length?attendance.map(a=>`<div class="student-row"><span class="avatar">${initials(a.name)}</span><div><strong>${esc(a.name)}</strong><small>Matrícula ${esc(a.registration)}</small></div><div class="status-options" data-student="${a.student_id}">${[['present','Presente'],['late','Atrasado'],['justified','Justificado'],['absent','Não presente']].map(([v,l])=>`<button data-status="${v}" class="${a.status===v?'selected':''}">● ${l}</button>`).join('')}</div></div>`).join(''):`<p class="empty-state">${k?'Nenhum aluno ativo nesta turma.':'Selecione uma turma para lançar a frequência.'}</p>`;attendanceSummary()}
+async function loadAttendance(s=false){if(!pedagogical())return;const c=$('#attendanceClass').value,d=$('#attendanceDate').value;if(!c||!d){attendance=[];return renderAttendance()}try{const x=await api(`/api/attendance?date=${encodeURIComponent(d)}&class_id=${encodeURIComponent(c)}`);attendance=x.records;attendanceDirty=false;renderAttendance()}catch(e){if(!s)toast('Erro ao carregar frequência',e.message)}}
 
-function showPage(name) {
-  $$('.page').forEach(page => page.classList.toggle('active', page.id === `page-${name}`));
-  $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === name));
-  $('#sidebar').classList.remove('open');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  if (name === 'usuarios') loadUsers();
-  if (name === 'agendas') loadAgendas();
-  if (name === 'turmas') loadStudents($('#studentClassFilter').value);
-  if (name === 'frequencia') loadAttendance();
-}
+async function loadIndicators(s=false){if(!pedagogical())return;try{indicators=await api('/api/indicators');const d=indicators;$('#indicatorScore').textContent=pct(d.overallPercent);$('#indicatorTotal').textContent=`${d.total} registros`;$('#indicatorHeadline').textContent=d.total?(d.overallPercent>=90?'A escola mantém uma frequência excelente.':'A frequência merece acompanhamento.'):'Comece lançando a frequência.';$('#indicatorDescription').textContent=d.total?'Dados calculados diretamente dos lançamentos salvos no banco.':'Os indicadores serão calculados automaticamente com os registros salvos.';$('#distributionTotal').textContent=`${d.total} registros processados`;$('#distPresent').textContent=d.distribution.present;$('#distLate').textContent=d.distribution.late;$('#distJustified').textContent=d.distribution.justified;$('#distAbsent').textContent=d.distribution.absent;const a=d.distribution;$('#indicatorDonut').style.background=d.total?`conic-gradient(var(--green) 0 ${a.present/d.total*100}%,var(--orange) 0 ${(a.present+a.late)/d.total*100}%,#4e79e8 0 ${(a.present+a.late+a.justified)/d.total*100}%,var(--red) 0)`:'#edf0f5';$('#indicatorDonut').dataset.score=pct(d.overallPercent);$('#classRanking').innerHTML=d.classRanking.length?d.classRanking.map((r,i)=>`<div><span>${i+1}</span><p><strong>${esc(r.name)}</strong><small>${r.student_count} alunos • ${r.record_count} registros</small></p><div class="rank-bar ${r.percent<85?'warn':''}"><i style="width:${r.percent}%"></i></div><b>${pct(r.percent)}</b></div>`).join(''):'<p class="empty-state">Nenhuma turma cadastrada.</p>';$('#riskStudents').innerHTML=d.riskStudents.length?d.riskStudents.map((r,i)=>`<div><span class="avatar ${['peach','lilac','mint'][i%3]}">${initials(r.name)}</span><p><strong>${esc(r.name)}</strong><small>${esc(r.class_name)} • ${esc(r.registration)}</small></p><b>${pct(r.percent)}</b><em>${r.absences} faltas</em></div>`).join(''):'<p class="empty-state">Nenhum aluno abaixo do índice de atenção.</p>'}catch(e){if(!s)toast('Erro ao carregar indicadores',e.message)}}
+const auditLabels={login:['Acesso ao sistema','entrou no painel'],user_created:['Usuário criado','criou um acesso'],user_updated:['Usuário atualizado','alterou um acesso'],user_deleted:['Usuário removido','removeu um acesso'],class_created:['Turma criada','criou uma turma'],class_updated:['Turma atualizada','alterou uma turma'],class_deleted:['Turma removida','removeu uma turma'],student_created:['Aluno matriculado','cadastrou um aluno'],student_updated:['Aluno atualizado','alterou um aluno'],student_deleted:['Aluno removido','removeu um aluno'],agenda_created:['Agenda adicionada','adicionou uma agenda'],agenda_updated:['Agenda atualizada','alterou uma agenda'],agenda_deleted:['Agenda removida','excluiu uma agenda'],attendance_saved:['Frequência registrada','salvou uma frequência']};
+function renderAudit(){$('#auditList').innerHTML=auditEntries.length?auditEntries.map(a=>{const l=auditLabels[a.action]||['Atividade registrada',a.action],d=new Date(a.created_at);return`<div class="audit-item"><span class="audit-icon blue">${esc(a.actor_initials||'•')}</span><div><strong>${l[0]}</strong><p>${esc(a.actor_name||'Usuário removido')} ${l[1]}${a.details?`: <b>${esc(a.details)}</b>`:''}.</p><small>${d.toLocaleDateString('pt-BR')} • ${d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`}).join(''):'<p class="empty-state">O histórico está limpo. As próximas ações aparecerão aqui.</p>'}
+async function loadAudit(s=false){if(!manager())return;try{const d=await api('/api/audit');auditEntries=d.entries;renderAudit()}catch(e){if(!s)toast('Erro ao carregar histórico',e.message)}}
+async function loadUsers(){if(!manager())return;const c=$('#userCards');c.innerHTML='<p class="loading-state">Carregando usuários...</p>';try{const d=await api('/api/users');managedUsers=d.users;c.innerHTML=managedUsers.map((u,i)=>`<article><span class="avatar ${['peach','mint','lilac',''][i%4]}">${esc(u.initials||initials(u.name))}</span><div><strong>${esc(u.name)}</strong><p>${esc(u.role)}</p><small>Usuário: ${esc(u.username)}</small></div><span class="${u.status==='active'?'status-active':'status-inactive'}">${u.status==='active'?'Ativo':'Inativo'}</span><button data-edit-user="${u.id}">•••</button></article>`).join('')||'<p class="loading-state">Nenhum usuário cadastrado.</p>'}catch(e){c.innerHTML=`<p class="loading-state">${esc(e.message)}</p>`}}
 
-async function loadSummary() {
-  const data = await api('/api/summary');
-  $('#metricClasses').textContent = data.classes;
-  $('#metricStudents').textContent = data.students;
-  $('#agendaNavCount').textContent = data.agendas;
-}
+function openAgenda(a=null){const f=$('#agendaForm');f.reset();populateClasses();$('#agendaId').value=a?.id||'';$('#agendaDate').value=a?.agenda_date||todayIso();$('#agendaFormClass').value=a?String(a.class_id):'';f.elements.subject.value=a?.subject||'Língua Portuguesa';f.elements.status.value=a?.status||'Concluída';f.elements.content.value=a?.content||'';f.elements.activity.value=a?.activity||'';f.elements.notes.value=a?.notes||'';$$('[name="material"]',f).forEach(b=>b.checked=a?a.materials.some(v=>v===b.value||(b.value==='Outro'&&v.startsWith('Outro:'))):b.value==='Livro');const o=a?.materials.find(v=>v.startsWith('Outro:'))||'';$('#otherMaterial').value=o.replace(/^Outro:\s*/,'');$('#otherMaterial').classList.toggle('hidden',!o);$('#agendaModalLabel').textContent=a?'Editar registro':'Novo registro';$('#agendaModalTitle').textContent=a?'Editar agenda escolar':'Adicionar agenda escolar';$('#deleteAgendaBtn').classList.toggle('hidden',!a);$('#agendaModal').showModal()}
+function openClass(k=null){$('#classForm').reset();$('#classId').value=k?.id||'';$('#className').value=k?.name||'';$('#classGrade').value=k?.grade_level||'';$('#classShift').value=k?.shift||'Matutino';$('#classYear').value=k?.school_year||Number(todayIso().slice(0,4));$('#classTeacher').value=k?.teacher_name||'';$('#classModalLabel').textContent=k?'Editar turma':'Nova turma';$('#classModalTitle').textContent=k?'Editar turma':'Criar turma';$('#deleteClassBtn').classList.toggle('hidden',!k);$('#classFormError').classList.add('hidden');$('#classModal').showModal()}
+function openStudent(cid='',s=null){if(!classes.some(c=>c.status==='active'))return toast('Crie uma turma primeiro','O aluno precisa de uma turma ativa.');$('#studentForm').reset();populateClasses();$('#studentId').value=s?.id||'';$('#studentRegistration').value=s?.registration||'';$('#studentName').value=s?.name||'';$('#studentBirthDate').value=s?.birth_date||'';$('#studentClass').value=String(s?.class_id||cid||'');$('#studentGuardian').value=s?.guardian_name||'';$('#studentPhone').value=s?.guardian_phone||'';$('#studentModalLabel').textContent=s?'Editar aluno':'Novo aluno';$('#studentModalTitle').textContent=s?'Editar matrícula':'Matricular aluno';$('#deleteStudentBtn').classList.toggle('hidden',!s);$('#studentFormError').classList.add('hidden');$('#studentModal').showModal()}
+function openUser(u=null){$('#userForm').reset();$('#userFormError').classList.add('hidden');$('#userId').value=u?.id||'';$('#userFullName').value=u?.name||'';$('#userLogin').value=u?.username||'';$('#userRole').value=u?.role||'Professor';$('#userStatus').value=u?.status||'active';$('#userModalLabel').textContent=u?'Editar acesso':'Novo acesso';$('#userModalTitle').textContent=u?'Editar usuário':'Adicionar usuário';$('#passwordHint').textContent=u?'Deixe em branco para manter a senha atual.':'Obrigatória para novos usuários.';$('#userPassword').required=!u;$('#deleteUserBtn').classList.toggle('hidden',!u);$('#userModal').showModal()}
+async function refresh(){await Promise.all([loadSummary(),loadClasses()]);const t=[];if(pedagogical())t.push(loadAgendas(),loadIndicators(true));if(manager())t.push(loadStudents());await Promise.all(t)}
 
-function classOption(klass) {
-  return `<option value="${klass.id}">${escapeHtml(klass.name)} • ${escapeHtml(klass.shift)}</option>`;
-}
-
-function replaceClassOptions(select, firstLabel) {
-  const previous = select.value;
-  select.innerHTML = `<option value="">${firstLabel}</option>${classes.filter(item => item.status === 'active').map(classOption).join('')}`;
-  if ([...select.options].some(option => option.value === previous)) select.value = previous;
-}
-
-function populateClassSelects() {
-  replaceClassOptions($('#agendaClass'), 'Todas as turmas');
-  replaceClassOptions($('#agendaFormClass'), 'Selecione uma turma');
-  replaceClassOptions($('#attendanceClass'), 'Selecione uma turma');
-  replaceClassOptions($('#studentClass'), 'Selecione uma turma');
-  replaceClassOptions($('#studentClassFilter'), 'Todas as turmas');
-}
-
-function renderClasses() {
-  const container = $('#classCards');
-  if (!classes.length) {
-    container.innerHTML = '<article class="panel empty-state">Nenhuma turma cadastrada. Clique em “Nova turma” para começar.</article>';
-    return;
-  }
-  container.innerHTML = classes.map(klass => `<article class="panel class-card"><div class="class-card-top"><span class="metric-icon blue">▦</span><span class="status-active">${klass.status === 'active' ? 'Ativa' : 'Inativa'}</span></div><h2>${escapeHtml(klass.name)}</h2><p>${escapeHtml(klass.grade_level)} • ${escapeHtml(klass.shift)} • ${klass.school_year}</p><div class="class-card-meta"><span><strong>${klass.student_count}</strong> alunos</span><span><strong>${escapeHtml(klass.teacher_name || '—')}</strong> professor</span></div><button class="secondary-btn" type="button" data-add-student-class="${klass.id}">＋ Adicionar aluno</button></article>`).join('');
-}
-
-async function loadClasses(silent = false) {
-  try {
-    const data = await api('/api/classes');
-    classes = data.classes;
-    populateClassSelects();
-    renderClasses();
-  } catch (error) {
-    if (!silent) toast('Não foi possível carregar turmas', error.message);
-  }
-}
-
-function renderStudentsTable() {
-  $('#studentCount').textContent = students.length;
-  $('#studentTable').innerHTML = students.length ? students.map(student => `<tr><td><strong>${escapeHtml(student.registration)}</strong></td><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.class_name || 'Sem turma')}</td><td>${formatDate(student.birth_date)}</td><td>${escapeHtml(student.guardian_name || '—')}</td><td>${escapeHtml(student.guardian_phone || '—')}</td></tr>`).join('') : '<tr><td colspan="6" class="empty-cell">Nenhum aluno cadastrado neste filtro.</td></tr>';
-}
-
-async function loadStudents(classId = '', silent = false) {
-  try {
-    const query = classId ? `?class_id=${encodeURIComponent(classId)}` : '';
-    const data = await api(`/api/students${query}`);
-    students = data.students;
-    renderStudentsTable();
-  } catch (error) {
-    if (!silent) toast('Não foi possível carregar alunos', error.message);
-  }
-}
-
-function agendaMatchesPeriod(agenda, period) {
-  if (!period) return true;
-  const today = new Date(`${todayIso()}T12:00:00`);
-  const date = new Date(`${agenda.agenda_date}T12:00:00`);
-  if (period === 'today') return agenda.agenda_date === todayIso();
-  if (period === 'week') return Math.abs(today - date) <= 6 * 86400000;
-  return agenda.agenda_date.slice(0, 7) === todayIso().slice(0, 7);
-}
-
-function statusClass(status) { return status === 'Concluída' ? 'done' : 'pending'; }
-
-function renderAgendas() {
-  const query = $('#agendaSearch').value.toLowerCase();
-  const classId = $('#agendaClass').value;
-  const status = $('#agendaStatus').value;
-  const period = $('#agendaPeriod').value;
-  const list = agendas.filter(item => (!query || Object.values(item).flat().join(' ').toLowerCase().includes(query)) && (!classId || String(item.class_id) === classId) && (!status || item.status === status) && agendaMatchesPeriod(item, period));
-  $('#agendaCount').textContent = list.length;
-  $('#agendaTable').innerHTML = list.length ? list.map(item => `<tr><td>${formatDate(item.agenda_date)}<br><small>${new Date(item.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small></td><td><strong>${escapeHtml(item.class_name || 'Turma removida')}</strong></td><td>${escapeHtml(item.subject)}</td><td><strong>${escapeHtml(item.content)}</strong><br><small>${item.materials.map(escapeHtml).join(' • ') || 'Sem material informado'}</small></td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.created_by_name || 'Usuário removido')}</td><td><button class="row-action" title="Registro salvo no banco">•••</button></td></tr>`).join('') : '<tr><td colspan="7" class="empty-cell">A agenda está limpa. Novos registros aparecerão aqui para todos os usuários.</td></tr>';
-}
-
-function renderRecent() {
-  const recent = agendas.slice(0, 4);
-  $('#recentAgendaList').innerHTML = recent.length ? recent.map(item => `<div class="timeline-item"><span class="timeline-dot"></span><p><strong>${escapeHtml(item.content)}</strong><small>${escapeHtml(item.class_name || 'Turma removida')} • ${escapeHtml(item.subject)} • ${escapeHtml(item.created_by_name || 'Usuário')}</small><span class="status-pill ${statusClass(item.status)}">${escapeHtml(item.status)}</span></p><span>${new Date(item.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') : '<p class="empty-state">Nenhuma agenda registrada ainda.</p>';
-}
-
-async function loadAgendas(silent = false) {
-  try {
-    const data = await api('/api/agendas');
-    agendas = data.agendas;
-    renderAgendas();
-    renderRecent();
-  } catch (error) {
-    if (!silent) toast('Não foi possível carregar a agenda', error.message);
-  }
-}
-
-function updateAttendanceSummary() {
-  const counts = { present: 0, late: 0, justified: 0, absent: 0 };
-  attendance.forEach(item => counts[item.status]++);
-  $('#sumPresent').textContent = counts.present; $('#sumLate').textContent = counts.late; $('#sumJustified').textContent = counts.justified; $('#sumAbsent').textContent = counts.absent;
-  const percent = attendance.length ? ((counts.present + counts.late * 0.5) / attendance.length * 100).toFixed(1).replace('.', ',') : '0';
-  $('#sumPercent').textContent = `${percent}%`; $('#sumBar').style.width = `${percent.replace(',', '.')}%`;
-}
-
-function renderAttendance() {
-  const classId = Number($('#attendanceClass').value);
-  const klass = classes.find(item => item.id === classId);
-  $('#attendanceClassTitle').textContent = klass?.name || 'Selecione uma turma';
-  $('#attendanceClassMeta').textContent = klass ? `Professor regente: ${klass.teacher_name || 'não informado'} • Turno ${klass.shift.toLowerCase()}` : 'Os alunos cadastrados aparecerão aqui automaticamente.';
-  $('#studentList').innerHTML = attendance.length ? attendance.map(item => `<div class="student-row"><span class="avatar">${initialsFor(item.name)}</span><div><strong>${escapeHtml(item.name)}</strong><small>Matrícula ${escapeHtml(item.registration)}</small></div><div class="status-options" data-student="${item.student_id}"><button data-status="present" class="${item.status === 'present' ? 'selected' : ''}">● Presente</button><button data-status="late" class="${item.status === 'late' ? 'selected' : ''}">● Atrasado</button><button data-status="justified" class="${item.status === 'justified' ? 'selected' : ''}">● Justificado</button><button data-status="absent" class="${item.status === 'absent' ? 'selected' : ''}">● Não presente</button></div></div>`).join('') : `<p class="empty-state">${klass ? 'Nenhum aluno ativo nesta turma.' : 'Selecione uma turma para lançar a frequência.'}</p>`;
-  updateAttendanceSummary();
-}
-
-async function loadAttendance(silent = false) {
-  const classId = $('#attendanceClass').value; const date = $('#attendanceDate').value;
-  if (!classId || !date) { attendance = []; renderAttendance(); return; }
-  try { const data = await api(`/api/attendance?date=${encodeURIComponent(date)}&class_id=${encodeURIComponent(classId)}`); attendance = data.records; attendanceDirty = false; renderAttendance(); }
-  catch (error) { if (!silent) toast('Não foi possível carregar a frequência', error.message); }
-}
-
-async function loadUsers() {
-  if (currentUser?.role !== 'Administrador') return;
-  const container = $('#userCards'); container.innerHTML = '<p class="loading-state">Carregando usuários...</p>';
-  try {
-    const data = await api('/api/users'); managedUsers = data.users;
-    container.innerHTML = managedUsers.map((user, index) => `<article><span class="avatar ${['peach', 'mint', 'lilac', ''][index % 4]}">${escapeHtml(user.initials || initialsFor(user.name))}</span><div><strong>${escapeHtml(user.name)}</strong><p>${escapeHtml(user.role)}</p><small>Usuário: ${escapeHtml(user.username)}</small></div><span class="${user.status === 'active' ? 'status-active' : 'status-inactive'}">${user.status === 'active' ? 'Ativo' : 'Inativo'}</span><button type="button" data-edit-user="${user.id}" aria-label="Editar ${escapeHtml(user.name)}">•••</button></article>`).join('') || '<p class="loading-state">Nenhum usuário cadastrado.</p>';
-  } catch (error) { container.innerHTML = `<p class="loading-state">${escapeHtml(error.message)}</p>`; }
-}
-
-function openUserModal(user = null) {
-  $('#userForm').reset(); $('#userFormError').classList.add('hidden'); $('#userFormError').textContent = '';
-  $('#userId').value = user?.id || ''; $('#userFullName').value = user?.name || ''; $('#userLogin').value = user?.username || ''; $('#userRole').value = user?.role || 'Coordenação'; $('#userStatus').value = user?.status || 'active';
-  $('#userModalLabel').textContent = user ? 'Editar acesso' : 'Novo acesso'; $('#userModalTitle').textContent = user ? 'Editar usuário' : 'Adicionar usuário';
-  $('#passwordHint').textContent = user ? 'Deixe em branco para manter a senha atual.' : 'Obrigatória para novos usuários.'; $('#userPassword').required = !user;
-  $('#deleteUserBtn').classList.toggle('hidden', !user); $('#userModal').showModal();
-}
-
-async function refreshSharedData() {
-  await Promise.all([loadSummary(), loadClasses()]);
-  await Promise.all([loadAgendas(), loadStudents()]);
-}
-
-$('#loginForm').addEventListener('submit', async event => {
-  event.preventDefault(); const button = event.submitter || $('#loginForm button[type="submit"]'); button.disabled = true; button.textContent = 'Entrando...';
-  try { const data = await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('#username').value, password: $('#password').value }) }); await openApp(data.user); $('#loginForm').reset(); }
-  catch (error) { $('#loginError').textContent = error.message; $('#loginError').classList.remove('hidden'); $('#password').select(); }
-  finally { button.disabled = false; button.innerHTML = 'Entrar no painel <span>→</span>'; }
-});
-
-$('#togglePassword').addEventListener('click', () => { const input = $('#password'); input.type = input.type === 'password' ? 'text' : 'password'; $('#togglePassword').textContent = input.type === 'password' ? 'ver' : 'ocultar'; });
-$('#logoutBtn').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST', body: '{}' }); } catch {} currentUser = null; $('#appShell').classList.add('hidden'); $('#loginScreen').classList.remove('hidden'); $('#loginForm').reset(); });
-$('#menuBtn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
-$$('.nav-item').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
-$$('[data-page-link]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.pageLink)));
-$$('[data-open-modal]').forEach(button => button.addEventListener('click', () => { if (button.dataset.openModal === 'agendaModal') $('#agendaDate').value = todayIso(); $(`#${button.dataset.openModal}`).showModal(); }));
-
-['agendaSearch', 'agendaClass', 'agendaStatus', 'agendaPeriod'].forEach(id => $(`#${id}`).addEventListener(id === 'agendaSearch' ? 'input' : 'change', renderAgendas));
-$('#otherMaterialCheck').addEventListener('change', event => $('#otherMaterial').classList.toggle('hidden', !event.target.checked));
-$('#submitAgenda').addEventListener('click', async event => {
-  event.preventDefault(); const form = $('#agendaForm'); if (!form.reportValidity()) return; const formData = new FormData(form); const materials = formData.getAll('material').map(item => item === 'Outro' && $('#otherMaterial').value ? `Outro: ${$('#otherMaterial').value}` : item);
-  try {
-    await api('/api/agendas', { method: 'POST', body: JSON.stringify({ date: formData.get('date'), classId: Number(formData.get('classId')), subject: formData.get('subject'), status: formData.get('status'), content: formData.get('content'), activity: formData.get('activity'), materials, notes: formData.get('notes') }) });
-    form.reset(); $('#agendaDate').value = todayIso(); $('#agendaModal').close(); await Promise.all([loadAgendas(), loadSummary()]); toast('Agenda registrada', 'O registro já está disponível para todos os usuários.'); showPage('agendas');
-  } catch (error) { toast('Não foi possível salvar', error.message); }
-});
-
-$('#newClassBtn').addEventListener('click', () => { $('#classForm').reset(); $('#classYear').value = Number(todayIso().slice(0, 4)); $('#classFormError').classList.add('hidden'); $('#classModal').showModal(); });
-$('#classForm').addEventListener('submit', async event => {
-  event.preventDefault(); const errorBox = $('#classFormError'); errorBox.classList.add('hidden');
-  try { await api('/api/classes', { method: 'POST', body: JSON.stringify({ name: $('#className').value, gradeLevel: $('#classGrade').value, shift: $('#classShift').value, schoolYear: Number($('#classYear').value), teacherName: $('#classTeacher').value }) }); $('#classModal').close(); await Promise.all([loadClasses(), loadSummary()]); toast('Turma criada', 'A turma já está disponível para toda a equipe.'); }
-  catch (error) { errorBox.textContent = error.message; errorBox.classList.remove('hidden'); }
-});
-
-function openStudentModal(classId = '') {
-  if (!classes.some(item => item.status === 'active')) { toast('Crie uma turma primeiro', 'O aluno precisa ser vinculado a uma turma ativa.'); return; }
-  $('#studentForm').reset(); populateClassSelects(); $('#studentClass').value = String(classId || ''); $('#studentFormError').classList.add('hidden'); $('#studentModal').showModal();
-}
-
-$('#newStudentBtn').addEventListener('click', () => openStudentModal($('#studentClassFilter').value));
-$('#classCards').addEventListener('click', event => { const button = event.target.closest('[data-add-student-class]'); if (button) openStudentModal(button.dataset.addStudentClass); });
-$('#studentForm').addEventListener('submit', async event => {
-  event.preventDefault(); const errorBox = $('#studentFormError'); errorBox.classList.add('hidden');
-  try { await api('/api/students', { method: 'POST', body: JSON.stringify({ registration: $('#studentRegistration').value, name: $('#studentName').value, birthDate: $('#studentBirthDate').value, classId: Number($('#studentClass').value), guardianName: $('#studentGuardian').value, guardianPhone: $('#studentPhone').value }) }); $('#studentModal').close(); await Promise.all([loadClasses(), loadStudents($('#studentClassFilter').value), loadSummary()]); toast('Aluno matriculado', 'O aluno já aparece na frequência da turma.'); }
-  catch (error) { errorBox.textContent = error.message; errorBox.classList.remove('hidden'); }
-});
-
-$('#studentClassFilter').addEventListener('change', event => loadStudents(event.target.value));
-$('#attendanceClass').addEventListener('change', () => loadAttendance());
-$('#attendanceDate').addEventListener('change', () => loadAttendance());
-$('#studentList').addEventListener('click', event => { const button = event.target.closest('[data-status]'); if (!button) return; const studentId = Number(button.parentElement.dataset.student); const record = attendance.find(item => Number(item.student_id) === studentId); if (!record) return; record.status = button.dataset.status; attendanceDirty = true; renderAttendance(); });
-$$('[data-bulk]').forEach(button => button.addEventListener('click', () => { attendance.forEach(item => item.status = button.dataset.bulk); attendanceDirty = true; renderAttendance(); }));
-$('#saveAttendance').addEventListener('click', async () => {
-  const classId = Number($('#attendanceClass').value); const date = $('#attendanceDate').value;
-  if (!classId || !date) { toast('Selecione a turma', 'Informe a data e a turma antes de salvar.'); return; }
-  try { await api('/api/attendance', { method: 'POST', body: JSON.stringify({ date, classId, records: attendance.map(item => ({ studentId: item.student_id, status: item.status, notes: item.notes || '' })) }) }); attendanceDirty = false; toast('Frequência salva', `${attendance.length} registros foram sincronizados para toda a equipe.`); }
-  catch (error) { toast('Não foi possível salvar', error.message); }
-});
-
-$('#exportBtn').addEventListener('click', () => toast('Relatório preparado', 'A demonstração simulou a exportação do relatório.'));
-$('#globalSearch').addEventListener('keydown', event => { if (event.key === 'Enter') { showPage('agendas'); $('#agendaSearch').value = event.target.value; renderAgendas(); } });
-document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#globalSearch').focus(); } });
-
-$('#newUserBtn').addEventListener('click', () => openUserModal());
-$('#userCards').addEventListener('click', event => { const button = event.target.closest('[data-edit-user]'); if (!button) return; const user = managedUsers.find(item => item.id === Number(button.dataset.editUser)); if (user) openUserModal(user); });
-$('#userForm').addEventListener('submit', async event => {
-  event.preventDefault(); const id = $('#userId').value; const payload = { name: $('#userFullName').value, username: $('#userLogin').value, role: $('#userRole').value, status: $('#userStatus').value, password: $('#userPassword').value }; const errorBox = $('#userFormError'); errorBox.classList.add('hidden');
-  try { await api(id ? `/api/users/${id}` : '/api/users', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) }); $('#userModal').close(); await loadUsers(); toast(id ? 'Usuário atualizado' : 'Usuário criado', 'As alterações foram salvas no banco de dados.'); }
-  catch (error) { errorBox.textContent = error.message; errorBox.classList.remove('hidden'); }
-});
-$('#deleteUserBtn').addEventListener('click', async () => {
-  const id = $('#userId').value; const user = managedUsers.find(item => item.id === Number(id)); if (!id || !user || !confirm(`Remover o acesso de ${user.name}?`)) return;
-  try { await api(`/api/users/${id}`, { method: 'DELETE' }); $('#userModal').close(); await loadUsers(); toast('Usuário removido', 'O acesso foi excluído do banco de dados.'); }
-  catch (error) { $('#userFormError').textContent = error.message; $('#userFormError').classList.remove('hidden'); }
-});
-
-setInterval(async () => {
-  if (!currentUser) return;
-  await Promise.all([loadSummary(), loadClasses(true)]);
-  if ($('#page-agendas').classList.contains('active') || $('#page-dashboard').classList.contains('active')) await loadAgendas(true);
-  if ($('#page-turmas').classList.contains('active')) await loadStudents($('#studentClassFilter').value, true);
-  if ($('#page-frequencia').classList.contains('active') && !attendanceDirty) await loadAttendance(true);
-}, 5000);
-
-(async () => { try { const data = await api('/api/session'); if (data.user) await openApp(data.user); } catch {} })();
+$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;b.textContent='Entrando...';try{const d=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('#username').value,password:$('#password').value})});await openApp(d.user);e.target.reset()}catch(x){$('#loginError').textContent=x.message;$('#loginError').classList.remove('hidden')}finally{b.disabled=false;b.innerHTML='Entrar no painel <span>→</span>'}});
+$('#togglePassword').onclick=()=>{const i=$('#password');i.type=i.type==='password'?'text':'password';$('#togglePassword').textContent=i.type==='password'?'ver':'ocultar'};$('#logoutBtn').onclick=async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}currentUser=null;$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden')};$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$$('.nav-item').forEach(b=>b.onclick=()=>showPage(b.dataset.page));$$('[data-page-link]').forEach(b=>b.onclick=()=>showPage(b.dataset.pageLink));$$('[data-open-modal]').forEach(b=>b.onclick=()=>openAgenda());
+['agendaSearch','agendaClass','agendaStatus','agendaPeriod'].forEach(id=>$(`#${id}`).addEventListener(id==='agendaSearch'?'input':'change',renderAgendas));$('#otherMaterialCheck').onchange=e=>$('#otherMaterial').classList.toggle('hidden',!e.target.checked);$('#agendaTable').onclick=e=>{const b=e.target.closest('[data-edit-agenda]');if(b)openAgenda(agendas.find(a=>a.id===Number(b.dataset.editAgenda)))};
+$('#submitAgenda').onclick=async e=>{e.preventDefault();const f=$('#agendaForm');if(!f.reportValidity())return;const d=new FormData(f),id=$('#agendaId').value,materials=d.getAll('material').map(v=>v==='Outro'&&$('#otherMaterial').value?`Outro: ${$('#otherMaterial').value}`:v);try{await api(id?`/api/agendas/${id}`:'/api/agendas',{method:id?'PUT':'POST',body:JSON.stringify({date:d.get('date'),classId:Number(d.get('classId')),subject:d.get('subject'),status:d.get('status'),content:d.get('content'),activity:d.get('activity'),materials,notes:d.get('notes')})});$('#agendaModal').close();await Promise.all([loadAgendas(),loadSummary(),loadIndicators(true)]);toast(id?'Agenda atualizada':'Agenda registrada','Registro disponível para toda a equipe.');showPage('agendas')}catch(x){toast('Não foi possível salvar',x.message)}};
+$('#deleteAgendaBtn').onclick=async()=>{const id=$('#agendaId').value;if(!id||!confirm('Excluir esta agenda permanentemente?'))return;try{await api(`/api/agendas/${id}`,{method:'DELETE'});$('#agendaModal').close();await Promise.all([loadAgendas(),loadSummary()]);toast('Agenda excluída','O registro foi removido.')}catch(e){toast('Erro ao excluir',e.message)}};
+$('#newClassBtn').onclick=()=>openClass();$('#classCards').onclick=e=>{const a=e.target.closest('[data-add-student-class]'),b=e.target.closest('[data-edit-class]');if(a)openStudent(a.dataset.addStudentClass);if(b)openClass(classes.find(c=>c.id===Number(b.dataset.editClass)))};
+$('#classForm').onsubmit=async e=>{e.preventDefault();const id=$('#classId').value,box=$('#classFormError');box.classList.add('hidden');try{await api(id?`/api/classes/${id}`:'/api/classes',{method:id?'PUT':'POST',body:JSON.stringify({name:$('#className').value,gradeLevel:$('#classGrade').value,shift:$('#classShift').value,schoolYear:Number($('#classYear').value),teacherName:$('#classTeacher').value,status:'active'})});$('#classModal').close();await Promise.all([loadClasses(),loadSummary()]);toast(id?'Turma atualizada':'Turma criada','Sincronizada para toda a equipe.')}catch(x){box.textContent=x.message;box.classList.remove('hidden')}};$('#deleteClassBtn').onclick=async()=>{const id=$('#classId').value;if(!id||!confirm('Excluir esta turma permanentemente?'))return;try{await api(`/api/classes/${id}`,{method:'DELETE'});$('#classModal').close();await Promise.all([loadClasses(),loadSummary()]);toast('Turma excluída','A turma foi removida.')}catch(e){$('#classFormError').textContent=e.message;$('#classFormError').classList.remove('hidden')}};
+$('#newStudentBtn').onclick=()=>openStudent($('#studentClassFilter').value);$('#studentTable').onclick=e=>{const b=e.target.closest('[data-edit-student]');if(b)openStudent('',students.find(s=>s.id===Number(b.dataset.editStudent)))};
+$('#studentForm').onsubmit=async e=>{e.preventDefault();const id=$('#studentId').value,box=$('#studentFormError');box.classList.add('hidden');try{await api(id?`/api/students/${id}`:'/api/students',{method:id?'PUT':'POST',body:JSON.stringify({registration:$('#studentRegistration').value,name:$('#studentName').value,birthDate:$('#studentBirthDate').value,classId:Number($('#studentClass').value),guardianName:$('#studentGuardian').value,guardianPhone:$('#studentPhone').value,status:'active'})});$('#studentModal').close();await Promise.all([loadClasses(),loadStudents($('#studentClassFilter').value),loadSummary()]);toast(id?'Aluno atualizado':'Aluno matriculado','A frequência foi sincronizada.')}catch(x){box.textContent=x.message;box.classList.remove('hidden')}};$('#deleteStudentBtn').onclick=async()=>{const id=$('#studentId').value;if(!id||!confirm('Excluir este aluno e suas frequências?'))return;try{await api(`/api/students/${id}`,{method:'DELETE'});$('#studentModal').close();await Promise.all([loadClasses(),loadStudents(),loadSummary()]);toast('Aluno excluído','O cadastro foi removido.')}catch(e){$('#studentFormError').textContent=e.message;$('#studentFormError').classList.remove('hidden')}};
+$('#studentClassFilter').onchange=e=>loadStudents(e.target.value);$('#attendanceClass').onchange=()=>loadAttendance();$('#attendanceDate').onchange=()=>loadAttendance();$('#studentList').onclick=e=>{const b=e.target.closest('[data-status]');if(!b)return;const r=attendance.find(a=>Number(a.student_id)===Number(b.parentElement.dataset.student));if(r){r.status=b.dataset.status;attendanceDirty=true;renderAttendance()}};$$('[data-bulk]').forEach(b=>b.onclick=()=>{attendance.forEach(a=>a.status=b.dataset.bulk);attendanceDirty=true;renderAttendance()});$('#saveAttendance').onclick=async()=>{const c=Number($('#attendanceClass').value),d=$('#attendanceDate').value;if(!c||!d)return toast('Selecione a turma','Informe data e turma.');try{await api('/api/attendance',{method:'POST',body:JSON.stringify({date:d,classId:c,records:attendance.map(a=>({studentId:a.student_id,status:a.status,notes:a.notes||''}))})});attendanceDirty=false;await Promise.all([loadSummary(true),loadIndicators(true)]);toast('Frequência salva',`${attendance.length} registros sincronizados.`)}catch(e){toast('Erro ao salvar',e.message)}};
+$('#newUserBtn').onclick=()=>openUser();$('#userCards').onclick=e=>{const b=e.target.closest('[data-edit-user]');if(b)openUser(managedUsers.find(u=>u.id===Number(b.dataset.editUser)))};$('#userForm').onsubmit=async e=>{e.preventDefault();const id=$('#userId').value,box=$('#userFormError'),p={name:$('#userFullName').value,username:$('#userLogin').value,role:$('#userRole').value,status:$('#userStatus').value,password:$('#userPassword').value};box.classList.add('hidden');try{await api(id?`/api/users/${id}`:'/api/users',{method:id?'PUT':'POST',body:JSON.stringify(p)});$('#userModal').close();await Promise.all([loadUsers(),loadSummary(true)]);toast(id?'Usuário atualizado':'Usuário criado','Acesso salvo no banco.')}catch(x){box.textContent=x.message;box.classList.remove('hidden')}};$('#deleteUserBtn').onclick=async()=>{const id=$('#userId').value,u=managedUsers.find(x=>x.id===Number(id));if(!id||!u||!confirm(`Remover o acesso de ${u.name}?`))return;try{await api(`/api/users/${id}`,{method:'DELETE'});$('#userModal').close();await loadUsers();toast('Usuário removido','O acesso foi excluído.')}catch(e){$('#userFormError').textContent=e.message;$('#userFormError').classList.remove('hidden')}};
+$('#exportBtn').onclick=()=>csv(`crescer-resumo-${todayIso()}.csv`,classes.map(c=>({Turma:c.name,Etapa:c.grade_level,Turno:c.shift,Ano:c.school_year,Professor:c.teacher_name||'',Alunos:c.student_count})));$('#indicatorExportBtn').onclick=async()=>{if(!indicators)await loadIndicators();csv(`crescer-indicadores-${todayIso()}.csv`,indicators?.classRanking.map(r=>({Turma:r.name,Alunos:r.student_count,Registros:r.record_count,Frequencia:pct(r.percent)}))||[])};$('#auditExportBtn').onclick=async()=>{if(!auditEntries.length)await loadAudit();csv(`crescer-auditoria-${todayIso()}.csv`,auditEntries.map(a=>({Data:new Date(a.created_at).toLocaleString('pt-BR'),Usuario:a.actor_name||'',Acao:auditLabels[a.action]?.[0]||a.action,Detalhes:a.details||''})))};
+$('#globalSearch').onkeydown=e=>{if(e.key==='Enter'){if(pedagogical()){showPage('agendas');$('#agendaSearch').value=e.target.value;renderAgendas()}else toast('Busca','Seu perfil possui acesso somente ao resumo financeiro.')}};document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus()}});
+setInterval(async()=>{if(!currentUser)return;await Promise.all([loadSummary(true),loadClasses(true)]);if(pedagogical()&&($('#page-agendas').classList.contains('active')||$('#page-dashboard').classList.contains('active')))await loadAgendas(true);if(manager()&&$('#page-turmas').classList.contains('active'))await loadStudents($('#studentClassFilter').value,true);if(pedagogical()&&$('#page-frequencia').classList.contains('active')&&!attendanceDirty)await loadAttendance(true);if($('#page-indicadores').classList.contains('active'))await loadIndicators(true);if($('#page-historico').classList.contains('active'))await loadAudit(true)},5000);
+(async()=>{try{const d=await api('/api/session');if(d.user)await openApp(d.user)}catch{}})();
