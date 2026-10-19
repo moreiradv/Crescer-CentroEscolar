@@ -61,10 +61,11 @@
         <p class="nav-label">Visão geral</p>
         <button class="nav-item active" data-page="dashboard"><span class="nav-icon">⌂</span><span>Dashboard</span></button>
         <p class="nav-label">Acompanhamento</p>
-        <button class="nav-item" data-page="agendas"><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count">8</b></button>
+        <button class="nav-item" data-page="agendas"><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia"><span class="nav-icon">✓</span><span>Frequência</span></button>
         <button class="nav-item" data-page="indicadores"><span class="nav-icon">↗</span><span>Indicadores</span></button>
         <p class="nav-label">Gestão</p>
+        <button class="nav-item" data-page="turmas"><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
         <button class="nav-item" data-page="historico"><span class="nav-icon">↺</span><span>Histórico</span></button>
         <button class="nav-item" data-page="usuarios" data-admin-only><span class="nav-icon">♙</span><span>Usuários</span></button>
       </nav>
@@ -94,8 +95,8 @@
         </section>
 
         <section class="metric-grid">
-          <article class="metric-card"><div class="metric-icon blue">▦</div><div class="metric-top"><span>Turmas ativas</span><b class="up">↗ 2</b></div><strong>12</strong><small>Educação Infantil ao 5º ano</small></article>
-          <article class="metric-card"><div class="metric-icon violet">♙</div><div class="metric-top"><span>Alunos</span><b class="up">↗ 4,2%</b></div><strong>284</strong><small>12 novos neste mês</small></article>
+          <article class="metric-card"><div class="metric-icon blue">▦</div><div class="metric-top"><span>Turmas ativas</span><b class="up">Banco online</b></div><strong id="metricClasses">0</strong><small>Cadastros compartilhados</small></article>
+          <article class="metric-card"><div class="metric-icon violet">♙</div><div class="metric-top"><span>Alunos</span><b class="up">Ao vivo</b></div><strong id="metricStudents">0</strong><small>Vinculados às turmas</small></article>
           <article class="metric-card"><div class="metric-icon teal">♧</div><div class="metric-top"><span>Professores</span><b>—</b></div><strong>24</strong><small>Equipe pedagógica ativa</small></article>
           <article class="metric-card featured"><div class="metric-icon green">✓</div><div class="metric-top"><span>Frequência hoje</span><b class="up">↗ 1,8%</b></div><strong>92,6%</strong><small>263 de 284 alunos</small><div class="progress"><i style="width:92.6%"></i></div></article>
         </section>
@@ -153,15 +154,21 @@
 
       <div class="page" id="page-agendas">
         <section class="page-head"><div><p class="eyebrow">Acompanhamento pedagógico</p><h1>Agenda escolar</h1><p>Consulte e acompanhe todos os registros da escola.</p></div><button class="primary-btn" data-open-modal="agendaModal">＋ Nova agenda</button></section>
-        <section class="panel filters-panel"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="agendaSearch" placeholder="Conteúdo, turma ou responsável..." /></span></label><label>Período<select id="agendaPeriod"><option>Todos os períodos</option><option>Hoje</option><option>Esta semana</option><option>Este mês</option></select></label><label>Turma<select id="agendaClass"><option value="">Todas as turmas</option><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Situação<select id="agendaStatus"><option value="">Todas</option><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label></div></section>
-        <section class="panel data-panel"><div class="table-head"><div><h2>Registros da escola</h2><p><span id="agendaCount">8</span> agendas encontradas</p></div><button class="secondary-btn">⇩ Exportar</button></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turma</th><th>Disciplina</th><th>Conteúdo</th><th>Situação</th><th>Registrado por</th><th></th></tr></thead><tbody id="agendaTable"></tbody></table></div></section>
+        <section class="panel filters-panel"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="agendaSearch" placeholder="Conteúdo, turma ou responsável..." /></span></label><label>Período<select id="agendaPeriod"><option value="">Todos os períodos</option><option value="today">Hoje</option><option value="week">Esta semana</option><option value="month">Este mês</option></select></label><label>Turma<select id="agendaClass"><option value="">Todas as turmas</option></select></label><label>Situação<select id="agendaStatus"><option value="">Todas</option><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label></div></section>
+        <section class="panel data-panel"><div class="table-head"><div><h2>Registros da escola</h2><p><span id="agendaCount">0</span> agendas encontradas</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turma</th><th>Disciplina</th><th>Conteúdo</th><th>Situação</th><th>Registrado por</th><th></th></tr></thead><tbody id="agendaTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-frequencia">
         <section class="page-head"><div><p class="eyebrow">Presença dos alunos</p><h1>Frequência</h1><p>Registre e acompanhe a presença de cada turma.</p></div><button class="primary-btn" id="saveAttendance">✓ Salvar frequência</button></section>
-        <section class="frequency-toolbar panel"><div><label>Data<input type="date" value="2026-10-10" /></label><label>Turma<select><option>3º Ano A • 22 alunos</option><option>2º Ano A • 22 alunos</option><option>4º Ano B • 24 alunos</option></select></label><div class="attendance-key"><span><i class="present"></i>Presente</span><span><i class="late"></i>Atrasado</span><span><i class="justified"></i>Justificado</span><span><i class="absent"></i>Não presente</span></div></section>
-        <section class="attendance-summary-row"><article><span class="legend-dot present"></span><div><small>Presentes</small><strong id="sumPresent">18</strong></div></article><article><span class="legend-dot late"></span><div><small>Atrasados</small><strong id="sumLate">1</strong></div></article><article><span class="legend-dot justified"></span><div><small>Justificados</small><strong id="sumJustified">1</strong></div></article><article><span class="legend-dot absent"></span><div><small>Não presentes</small><strong id="sumAbsent">2</strong></div></article><article class="percent"><small>Frequência da turma</small><strong id="sumPercent">86,4%</strong><div class="progress"><i id="sumBar" style="width:86.4%"></i></div></article></section>
-        <section class="panel attendance-table-panel"><div class="table-head"><div><h2>3º Ano A</h2><p>Professor regente: Carlos Lima • Turno matutino</p></div><div class="bulk-actions"><span>Marcar todos como</span><button data-bulk="present">Presentes</button></div></div><div class="student-list" id="studentList"></div></section>
+        <section class="frequency-toolbar panel"><div><label>Data<input type="date" id="attendanceDate" /></label><label>Turma<select id="attendanceClass"><option value="">Selecione uma turma</option></select></label><div class="attendance-key"><span><i class="present"></i>Presente</span><span><i class="late"></i>Atrasado</span><span><i class="justified"></i>Justificado</span><span><i class="absent"></i>Não presente</span></div></section>
+        <section class="attendance-summary-row"><article><span class="legend-dot present"></span><div><small>Presentes</small><strong id="sumPresent">0</strong></div></article><article><span class="legend-dot late"></span><div><small>Atrasados</small><strong id="sumLate">0</strong></div></article><article><span class="legend-dot justified"></span><div><small>Justificados</small><strong id="sumJustified">0</strong></div></article><article><span class="legend-dot absent"></span><div><small>Não presentes</small><strong id="sumAbsent">0</strong></div></article><article class="percent"><small>Frequência da turma</small><strong id="sumPercent">0%</strong><div class="progress"><i id="sumBar" style="width:0%"></i></div></article></section>
+        <section class="panel attendance-table-panel"><div class="table-head"><div><h2 id="attendanceClassTitle">Selecione uma turma</h2><p id="attendanceClassMeta">Os alunos cadastrados aparecerão aqui automaticamente.</p></div><div class="bulk-actions"><span>Marcar todos como</span><button data-bulk="present">Presentes</button></div></div><div class="student-list" id="studentList"><p class="empty-state">Cadastre uma turma e seus alunos para lançar a frequência.</p></div></section>
+      </div>
+
+      <div class="page" id="page-turmas">
+        <section class="page-head"><div><p class="eyebrow">Estrutura acadêmica</p><h1>Turmas e alunos</h1><p>Crie turmas e vincule os alunos que aparecerão na frequência.</p></div><div class="head-actions"><button class="secondary-btn" id="newStudentBtn">＋ Novo aluno</button><button class="primary-btn" id="newClassBtn">＋ Nova turma</button></div></section>
+        <section class="class-grid" id="classCards"><article class="panel empty-state">Nenhuma turma cadastrada.</article></section>
+        <section class="panel data-panel"><div class="table-head"><div><h2>Alunos cadastrados</h2><p><span id="studentCount">0</span> alunos no banco</p></div><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div><div class="table-wrap"><table><thead><tr><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-indicadores">
@@ -186,9 +193,27 @@
   <dialog class="modal" id="agendaModal">
     <form method="dialog" id="agendaForm">
       <div class="modal-head"><div><span class="soft-label">Novo registro</span><h2>Adicionar agenda escolar</h2><p>O responsável será identificado automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
-      <div class="form-grid"><label>Data<input name="date" type="date" value="2026-10-10" required /></label><label>Turma<select name="class" required><option>2º Ano A</option><option>3º Ano A</option><option>4º Ano B</option><option>5º Ano A</option></select></label><label>Disciplina<select name="subject"><option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option><option>História</option><option>Geografia</option><option>Artes</option></select></label><label>Situação<select name="status"><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label><label class="full">Conteúdo<textarea name="content" placeholder="Ex.: Leitura e interpretação de texto" required></textarea></label><label class="full">Atividade realizada<textarea name="activity" placeholder="Descreva a atividade realizada..."></textarea></label><fieldset class="full"><legend>Meio/material utilizado</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
+      <div class="form-grid"><label>Data<input name="date" id="agendaDate" type="date" required /></label><label>Turma<select name="classId" id="agendaFormClass" required><option value="">Selecione uma turma</option></select></label><label>Disciplina<select name="subject"><option>Língua Portuguesa</option><option>Matemática</option><option>Ciências</option><option>História</option><option>Geografia</option><option>Artes</option></select></label><label>Situação<select name="status"><option>Concluída</option><option>Iniciada</option><option>Pendente</option><option>Continuar posteriormente</option></select></label><label class="full">Conteúdo<textarea name="content" placeholder="Ex.: Leitura e interpretação de texto" required></textarea></label><label class="full">Atividade realizada<textarea name="activity" placeholder="Descreva a atividade realizada..."></textarea></label><fieldset class="full"><legend>Meio/material utilizado</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
       <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a <b id="traceUser">usuário atual</b> e ao horário do envio.</p></div>
       <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" value="default" id="submitAgenda">Salvar agenda</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="classModal">
+    <form method="dialog" id="classForm">
+      <div class="modal-head"><div><span class="soft-label">Nova turma</span><h2>Criar turma</h2><p>A turma ficará disponível para agenda, alunos e frequência.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <div class="form-grid"><label>Nome da turma<input id="className" placeholder="Ex.: 3º Ano A" required /></label><label>Etapa/Série<input id="classGrade" placeholder="Ex.: Ensino Fundamental" required /></label><label>Turno<select id="classShift" required><option>Matutino</option><option>Vespertino</option><option>Integral</option><option>Noturno</option></select></label><label>Ano letivo<input id="classYear" type="number" min="2020" max="2100" required /></label><label class="full">Professor regente<input id="classTeacher" placeholder="Nome do professor (opcional)" /></label></div>
+      <p class="login-error hidden" id="classFormError" role="alert"></p>
+      <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar turma</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="studentModal">
+    <form method="dialog" id="studentForm">
+      <div class="modal-head"><div><span class="soft-label">Novo aluno</span><h2>Matricular aluno</h2><p>O aluno aparecerá automaticamente na lista de frequência da turma.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <div class="form-grid"><label>Matrícula<input id="studentRegistration" placeholder="Ex.: 2026001" required /></label><label>Nome completo<input id="studentName" placeholder="Nome do aluno" required /></label><label>Data de nascimento<input id="studentBirthDate" type="date" /></label><label>Turma<select id="studentClass" required><option value="">Selecione uma turma</option></select></label><label>Responsável<input id="studentGuardian" placeholder="Nome do responsável" /></label><label>Telefone do responsável<input id="studentPhone" type="tel" placeholder="(00) 00000-0000" /></label></div>
+      <p class="login-error hidden" id="studentFormError" role="alert"></p>
+      <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar aluno</button></div>
     </form>
   </dialog>
 
@@ -209,6 +234,6 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261019-login-fix"></script>
+  <script src="./app.js?v=20261019-school-data"></script>
 </body>
 </html>
