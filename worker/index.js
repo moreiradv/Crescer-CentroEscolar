@@ -11,11 +11,6 @@ const MANAGER_ROLES = new Set(["Administrador", "Coordenação"]);
 const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Professor"]);
 const ALLOWED_ATTENDANCE = new Set(["present", "late", "justified", "absent"]);
 const ALLOWED_SHIFTS = new Set(["Matutino", "Vespertino", "Integral", "Noturno"]);
-const SEED_USERS = [
-  { username: "Thays Barros", name: "Thays Barros", role: "Coordenação", initials: "TB", salt: "653627e933cad1080cc44235a32b238c", passwordHash: "78d416075865200487080d916a7536cc3b1839f10059941e8f40e09273af4aa0", previousHash: "0ac0ecd42796c22b3cd22f19670776913adc99b5d161ca1d9565011e7c2e2cac" },
-  { username: "Thayane Barros", name: "Thayane Barros", role: "Financeiro", initials: "TB", salt: "4b5fd8796b6f2257674ba55378e3430b", passwordHash: "c95e5cb2cea878267157f84340d5973869f77c83bbc5d395fe937fcb5faceedd", previousHash: "e7485f084e03929bba8e87974f960ebfeae3720128a5a2d2c5556e84ed291764" },
-  { username: "Estagiárias 2026", name: "Estagiárias 2026", role: "Administrador", initials: "E26", salt: "0c478a30216e83d6ec85e59d553722be", passwordHash: "e7fc80643488689442ab273a9ae0b605d102b18671c09affa41dadeface01468", previousHash: "bf067d61de3095873784573220019b1088f4ff4fb8ffd132f95237cb022ad362" },
-];
 
 function normalizeUsername(value) {
   return String(value || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").toLowerCase();
@@ -84,11 +79,22 @@ function parseCookies(request) {
   }));
 }
 
-async function seedUsers(db) {
+function bootstrapUsers(env) {
+  try {
+    const parsed = JSON.parse(env.BOOTSTRAP_USERS_JSON || "{}");
+    return Array.isArray(parsed.users) ? parsed.users.filter(user => user.username && user.passwordHash && user.salt && ALLOWED_ROLES.has(user.role)) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function seedUsers(db, env) {
+  const users = bootstrapUsers(env);
+  if (!users.length) return;
   const now = Date.now();
-  await db.batch(SEED_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO users (username, username_key, name, role, initials, password_hash, password_salt, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
+  await db.batch(users.map(user => db.prepare(`INSERT OR IGNORE INTO users (username, username_key, name, role, initials, password_hash, password_salt, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
     .bind(user.username, normalizeUsername(user.username), user.name, user.role, user.initials, user.passwordHash, user.salt, now, now)));
-  await db.batch(SEED_USERS.map(user => db.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE username_key = ? AND password_hash = ?`)
+  await db.batch(users.filter(user => user.previousHash).map(user => db.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE username_key = ? AND password_hash = ?`)
     .bind(user.passwordHash, user.salt, now, normalizeUsername(user.username), user.previousHash)));
 }
 
@@ -144,7 +150,7 @@ async function handleApi(request, env, path) {
   if (!db) return json({ error: "Banco de dados indisponível." }, 503);
 
   if (path === "/api/login" && request.method === "POST") {
-    await seedUsers(db);
+    await seedUsers(db, env);
     const body = await readJson(request);
     const usernameKey = normalizeUsername(body.username);
     if (!usernameKey || typeof body.password !== "string") return json({ error: "Informe usuário e senha." }, 400);
