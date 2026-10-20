@@ -9,8 +9,8 @@ const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const PBKDF2_ITERATIONS = 40000;
 const GITHUB_ORIGIN = "https://moreiradv.github.io";
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador", "Professor"]);
-const MANAGER_ROLES = new Set(["Administrador", "Coordenação"]);
-const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Professor"]);
+const MANAGER_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
+const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Financeiro", "Professor"]);
 const ENROLLMENT_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
 const ALLOWED_ATTENDANCE = new Set(["present", "late", "justified", "absent"]);
 const ALLOWED_SHIFTS = new Set(["Matutino", "Vespertino", "Integral", "Noturno"]);
@@ -123,7 +123,7 @@ async function getSession(request, db) {
 async function requireManager(request, db) {
   const user = await getSession(request, db);
   if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
-  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas administração e coordenação podem realizar esta ação." }, 403) };
+  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas administração, coordenação e financeiro podem realizar esta ação." }, 403) };
   return { user };
 }
 

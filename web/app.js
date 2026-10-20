@@ -6,7 +6,7 @@ const todayIso=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Araguaina'
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const initials=n=>String(n||'').split(/\s+/).filter(Boolean).map(p=>p[0]).slice(0,2).join('').toUpperCase();
 const dateBr=v=>v?v.split('-').reverse().join('/'):'—', pct=v=>`${Number(v||0).toFixed(1).replace('.',',')}%`;
-const manager=()=>['Administrador','Coordenação'].includes(currentUser?.role), pedagogical=()=>['Administrador','Coordenação','Professor'].includes(currentUser?.role);
+const manager=()=>['Administrador','Coordenação','Financeiro'].includes(currentUser?.role), pedagogical=()=>['Administrador','Coordenação','Financeiro','Professor'].includes(currentUser?.role);
 const enrollmentAccess=()=>['Administrador','Coordenação','Financeiro'].includes(currentUser?.role);
 $('#agendaDate').value=todayIso(); $('#attendanceDate').value=todayIso(); $('#classYear').value=Number(todayIso().slice(0,4));
 
