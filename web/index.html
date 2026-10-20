@@ -65,6 +65,7 @@
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
         <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
         <p class="nav-label">Gestão</p>
+        <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
         <button class="nav-item" data-page="historico" data-manager-only><span class="nav-icon">↺</span><span>Histórico</span></button>
         <button class="nav-item" data-page="usuarios" data-manager-only><span class="nav-icon">♙</span><span>Usuários</span></button>
@@ -168,6 +169,18 @@
         <section class="panel risk-panel"><div class="panel-head"><div><h2>Alunos que pedem atenção</h2><p>Frequência abaixo de 85% em todos os registros</p></div></div><div class="risk-grid" id="riskStudents"><p class="empty-state">Nenhum aluno abaixo do índice de atenção.</p></div></section>
       </div>
 
+      <div class="page" id="page-matriculas">
+        <section class="page-head"><div><p class="eyebrow">Admissão e financeiro</p><h1>Matrículas</h1><p>Cadastre alunos, produtos e valores com histórico financeiro preservado.</p></div><div class="head-actions"><button class="secondary-btn" id="openEnrollmentConfig">⚙ Configurações</button><button class="primary-btn" id="newEnrollmentBtn">＋ Nova matrícula</button></div></section>
+        <section class="metric-grid enrollment-metrics">
+          <article class="metric-card"><div class="metric-icon blue">▣</div><div class="metric-top"><span>Total de matrículas</span><b class="up">Banco online</b></div><strong id="metricEnrollments">0</strong><small>Registros encontrados</small></article>
+          <article class="metric-card"><div class="metric-icon green">✓</div><div class="metric-top"><span>Concluídas</span><b>Ativas</b></div><strong id="metricCompletedEnrollments">0</strong><small>Alunos integrados às turmas</small></article>
+          <article class="metric-card"><div class="metric-icon orange">◷</div><div class="metric-top"><span>Rascunhos</span><b>Em andamento</b></div><strong id="metricDraftEnrollments">0</strong><small>Aguardando conclusão</small></article>
+          <article class="metric-card featured"><div class="metric-icon violet">R$</div><div class="metric-top"><span>Valor inicial</span><b class="up">Preservado</b></div><strong id="metricEnrollmentRevenue">R$ 0,00</strong><small>Somatório das concluídas</small></article>
+        </section>
+        <section class="panel filters-panel enrollment-filters"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="enrollmentSearch" placeholder="Aluno, matrícula ou responsável..." /></span></label><label>Série<select id="enrollmentGradeFilter"><option value="">Todas as séries</option></select></label><label>Turma<select id="enrollmentClassFilter"><option value="">Todas as turmas</option></select></label><label>De<input type="date" id="enrollmentFrom" /></label><label>Até<input type="date" id="enrollmentTo" /></label><button class="secondary-btn filter-clear" id="clearEnrollmentFilters">Limpar filtros</button></div></section>
+        <section class="panel data-panel"><div class="table-head"><div><h2>Matrículas realizadas</h2><p><span id="enrollmentCount">0</span> registros na consulta</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Aluno</th><th>Série</th><th>Turma</th><th>Responsável</th><th>Data</th><th>Valor inicial</th><th>Mensalidade</th><th>Status</th><th>Ações</th></tr></thead><tbody id="enrollmentTable"><tr><td colspan="9" class="empty-cell">Nenhuma matrícula registrada.</td></tr></tbody></table></div></section>
+      </div>
+
       <div class="page" id="page-historico">
         <section class="page-head"><div><p class="eyebrow">Rastreabilidade</p><h1>Histórico de registros</h1><p>Saiba quem registrou, o que foi alterado e quando.</p></div><button class="secondary-btn" id="auditExportBtn">⇩ Exportar auditoria</button></section>
         <section class="panel audit-panel" id="auditList"><p class="empty-state">Nenhuma atividade registrada.</p></section>
@@ -226,7 +239,44 @@
     </form>
   </dialog>
 
+  <dialog class="modal enrollment-modal" id="enrollmentModal">
+    <form method="dialog" id="enrollmentForm">
+      <div class="modal-head"><div><span class="soft-label" id="enrollmentModalLabel">Nova matrícula</span><h2 id="enrollmentModalTitle">Cadastrar aluno</h2><p>Preencha as etapas; os valores são calculados automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <input type="hidden" id="enrollmentId" />
+      <div class="enrollment-layout">
+        <div class="enrollment-fields">
+          <section class="form-section"><div class="section-title"><span>1</span><div><h3>Aluno e responsável</h3><p>Campos com * são obrigatórios.</p></div></div><div class="form-grid"><label>Matrícula *<input id="enrollmentRegistration" required placeholder="Ex.: 2026001" /></label><label>Nome completo do aluno *<input id="enrollmentStudentName" required /></label><label>Data de nascimento *<input id="enrollmentBirthDate" type="date" required /></label><label>Data da matrícula *<input id="enrollmentDate" type="date" required /></label><label>Responsável *<input id="enrollmentGuardian" required /></label><label>Telefone *<input id="enrollmentPhone" type="tel" required placeholder="(00) 00000-0000" /></label><label class="full">Observações<textarea id="enrollmentNotes" placeholder="Informações adicionais"></textarea></label></div></section>
+          <section class="form-section"><div class="section-title"><span>2</span><div><h3>Série e turma</h3><p>Os valores da série serão aplicados automaticamente.</p></div></div><div class="form-grid"><label>Série de ingresso *<select id="enrollmentGrade" required><option value="">Selecione a série</option></select></label><label>Turma, quando definida<select id="enrollmentClass"><option value="">Definir posteriormente</option></select></label></div></section>
+          <section class="form-section"><div class="section-title"><span>3</span><div><h3>Livros</h3><p>Disponíveis conforme a série selecionada.</p></div></div><div id="enrollmentBooks" class="product-picker"><p class="empty-state">Selecione uma série para ver os livros.</p></div></section>
+          <section class="form-section"><div class="section-title"><span>4</span><div><h3>Fardamento</h3><p>Escolha peças, tamanhos e quantidades.</p></div></div><div id="enrollmentUniforms" class="product-picker"><p class="empty-state">Nenhuma peça cadastrada.</p></div></section>
+        </div>
+        <aside class="financial-summary"><span class="soft-label">Resumo financeiro</span><h3>Valores da matrícula</h3><dl><div><dt>Taxa de matrícula</dt><dd id="summaryEnrollmentFee">R$ 0,00</dd></div><div><dt>Total dos livros</dt><dd id="summaryBooks">R$ 0,00</dd></div><div><dt>Total do fardamento</dt><dd id="summaryUniforms">R$ 0,00</dd></div><div class="summary-total"><dt>Total inicial</dt><dd id="summaryInitial">R$ 0,00</dd></div><div><dt>Mensalidade</dt><dd id="summaryMonthly">R$ 0,00</dd></div></dl><label class="include-month"><input type="checkbox" id="includeFirstMonthly" /> Incluir a primeira mensalidade no total inicial</label><p class="price-lock-note">🔒 Ao concluir, estes preços ficam preservados no histórico.</p></aside>
+      </div>
+      <p class="login-error hidden" id="enrollmentFormError" role="alert"></p>
+      <div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><span class="action-spacer"></span><button class="secondary-btn" type="button" id="saveEnrollmentDraft">Salvar rascunho</button><button class="primary-btn" type="button" id="reviewEnrollment">Revisar e concluir</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal review-modal" id="enrollmentReviewModal">
+    <form method="dialog"><div class="modal-head"><div><span class="soft-label">Revisão final</span><h2>Confira antes de concluir</h2><p>A conclusão criará o aluno e preservará os preços deste momento.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><div id="enrollmentReviewContent" class="review-content"></div><div class="modal-actions"><button class="secondary-btn" value="cancel">Voltar</button><span class="action-spacer"></span><button class="primary-btn" type="button" id="confirmEnrollment">✓ Confirmar matrícula</button></div></form>
+  </dialog>
+
+  <dialog class="modal detail-modal" id="enrollmentDetailModal">
+    <form method="dialog"><div class="modal-head"><div><span class="soft-label">Registro da matrícula</span><h2 id="enrollmentDetailTitle">Detalhes</h2><p>Valores e alterações registrados no banco.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><div id="enrollmentDetailContent" class="review-content"></div><div class="modal-actions"><button class="secondary-btn" value="cancel">Fechar</button><span class="action-spacer"></span><button class="primary-btn" type="button" id="editEnrollmentFromDetail">Editar cadastro</button></div></form>
+  </dialog>
+
+  <dialog class="modal config-modal" id="enrollmentConfigModal">
+    <div><div class="modal-head"><div><span class="soft-label">Configurações de matrículas</span><h2>Valores e produtos</h2><p>Alterações valem para novas matrículas; registros concluídos não mudam.</p></div><button class="modal-close" type="button" id="closeEnrollmentConfig" aria-label="Fechar">×</button></div>
+      <div class="config-grid">
+        <section class="config-card"><div class="panel-head"><div><h3>Valores por série</h3><p>Matrícula, mensalidade e situação</p></div></div><form id="gradeForm" class="compact-form"><input type="hidden" id="gradeId" /><input id="gradeName" placeholder="Nome da série" required /><input id="gradeEnrollmentFee" inputmode="decimal" placeholder="Matrícula R$" required /><input id="gradeMonthlyFee" inputmode="decimal" placeholder="Mensalidade R$" required /><select id="gradeStatus"><option value="active">Ativa</option><option value="inactive">Inativa</option></select><button class="primary-btn" type="submit">Salvar série</button><button class="link-btn" type="button" id="cancelGradeEdit">Limpar</button></form><div class="config-list" id="gradeList"></div></section>
+        <section class="config-card"><div class="panel-head"><div><h3>Livros</h3><p>Catálogo por série e estoque</p></div></div><form id="bookForm" class="compact-form"><input type="hidden" id="bookId" /><input id="bookName" placeholder="Nome do livro" required /><select id="bookGrade" required><option value="">Série</option></select><input id="bookPrice" inputmode="decimal" placeholder="Valor R$" required /><label class="check-line"><input type="checkbox" id="bookStockEnabled" /> Controlar estoque</label><input id="bookStock" type="number" min="0" value="0" placeholder="Quantidade" /><select id="bookStatus"><option value="active">Ativo</option><option value="inactive">Inativo</option></select><button class="primary-btn" type="submit">Salvar livro</button><button class="link-btn" type="button" id="cancelBookEdit">Limpar</button></form><div class="config-list" id="bookList"></div></section>
+        <section class="config-card"><div class="panel-head"><div><h3>Fardamento</h3><p>Peças, tamanhos, preços e estoque</p></div></div><form id="uniformForm" class="compact-form"><input type="hidden" id="uniformId" /><select id="uniformName" required><option>Calça</option><option>Blusa com manga</option><option>Short</option><option>Blusa sem manga</option></select><input id="uniformSize" placeholder="Tamanho (ex.: 8, P, M)" required /><input id="uniformPrice" inputmode="decimal" placeholder="Valor R$" required /><label class="check-line"><input type="checkbox" id="uniformStockEnabled" /> Controlar estoque</label><input id="uniformStock" type="number" min="0" value="0" placeholder="Quantidade" /><select id="uniformStatus"><option value="active">Ativo</option><option value="inactive">Inativo</option></select><button class="primary-btn" type="submit">Salvar peça</button><button class="link-btn" type="button" id="cancelUniformEdit">Limpar</button></form><div class="config-list" id="uniformList"></div></section>
+      </div>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261019-complete-system"></script>
+  <script src="./app.js?v=20261019-enrollments"></script>
+  <script src="./enrollments.js?v=20261019-enrollments"></script>
 </body>
 </html>

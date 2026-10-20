@@ -8,6 +8,7 @@ worker = worker
   .replace("__INDEX_HTML__", () => JSON.stringify(read("web/index.html").toString("utf8")))
   .replace("__STYLES__", () => JSON.stringify(read("web/styles.css").toString("utf8")))
   .replace("__APP_JS__", () => JSON.stringify(read("web/app.js").toString("utf8")))
+  .replace("__ENROLLMENTS_JS__", () => JSON.stringify(read("web/enrollments.js").toString("utf8")))
   .replace("__LOGO_BASE64__", () => JSON.stringify(read("web/assets/logo-crescer.png").toString("base64")));
 
 const dist = path.join(root, "dist");
