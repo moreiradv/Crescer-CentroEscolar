@@ -7,7 +7,10 @@ const LOGO_BASE64 = __LOGO_BASE64__;
 const SESSION_COOKIE = "crescer_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const PBKDF2_ITERATIONS = 40000;
-const GITHUB_ORIGIN = "https://moreiradv.github.io";
+const ALLOWED_EXTERNAL_ORIGINS = new Set([
+  "https://moreiradv.github.io",
+  "https://crescer-escola-web.vercel.app",
+]);
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador", "Professor"]);
 const MANAGER_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
 const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Financeiro", "Professor"]);
@@ -26,8 +29,19 @@ function safeUser(row) {
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": GITHUB_ORIGIN, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin", ...extraHeaders },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders },
   });
+}
+
+function withCors(response, request) {
+  const origin = request.headers.get("origin") || "";
+  if (!ALLOWED_EXTERNAL_ORIGINS.has(origin)) return response;
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-headers", "content-type, authorization");
+  headers.set("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS");
+  headers.set("vary", "Origin");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function securityHeaders(contentType, cacheControl = "no-cache") {
@@ -361,8 +375,8 @@ async function handleApi(request, env, path) {
     await db.prepare(`INSERT INTO sessions (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)`)
       .bind(user.id, tokenHash, now + SESSION_SECONDS * 1000, now).run();
     await audit(db, user.id, "login", user.id, null);
-    const githubClient = request.headers.get("origin") === GITHUB_ORIGIN;
-    return json({ user: safeUser(user), ...(githubClient ? { token } : {}) }, 200, { "set-cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}` });
+    const externalClient = ALLOWED_EXTERNAL_ORIGINS.has(request.headers.get("origin") || "");
+    return json({ user: safeUser(user), ...(externalClient ? { token } : {}) }, 200, { "set-cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}` });
   }
 
   if (path === "/api/session" && request.method === "GET") {
@@ -661,8 +675,12 @@ export default {
     void ctx;
     const url = new URL(request.url);
     try {
-      if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": GITHUB_ORIGIN, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-max-age": "86400", "vary": "Origin" } });
-      if (url.pathname.startsWith("/api/")) return await handleApi(request, env, url.pathname);
+      if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") {
+        const origin = request.headers.get("origin") || "";
+        if (!ALLOWED_EXTERNAL_ORIGINS.has(origin)) return new Response(null, { status: 403 });
+        return new Response(null, { status: 204, headers: { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-max-age": "86400", "vary": "Origin" } });
+      }
+      if (url.pathname.startsWith("/api/")) return withCors(await handleApi(request, env, url.pathname), request);
       if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
       if (url.pathname === "/" || url.pathname === "/index.html") return new Response(INDEX_HTML, { headers: securityHeaders("text/html; charset=utf-8") });
       if (url.pathname === "/styles.css") return new Response(STYLES, { headers: securityHeaders("text/css; charset=utf-8", "public, max-age=3600") });
@@ -672,7 +690,7 @@ export default {
       return new Response("Not found", { status: 404, headers: securityHeaders("text/plain; charset=utf-8") });
     } catch (error) {
       console.error("Request failed", error);
-      return url.pathname.startsWith("/api/") ? json({ error: "Erro interno. Tente novamente." }, 500) : new Response("Internal error", { status: 500 });
+      return url.pathname.startsWith("/api/") ? withCors(json({ error: "Erro interno. Tente novamente." }, 500), request) : new Response("Internal error", { status: 500 });
     }
   },
 };
