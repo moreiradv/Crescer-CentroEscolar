@@ -29,6 +29,13 @@
       "when": 1792440000000,
       "tag": "0003_add_enrollment_module",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792530000000,
+      "tag": "0004_add_academic_history",
+      "breakpoints": true
     }
   ]
 }

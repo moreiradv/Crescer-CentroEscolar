@@ -171,6 +171,45 @@ async function audit(db, actorId, action, targetId, details) {
 }
 
 const DEFAULT_GRADES = ["Infantil 3", "Infantil 4", "Infantil 5", "1º Ano", "2º Ano", "3º Ano", "4º Ano", "5º Ano", "6º Ano"];
+const DEFAULT_SUBJECTS = {
+  "Educação Infantil": ["Matemática", "Natureza e Sociedade", "Educação Física", "Ensino Religioso", "Linguagem", "Arte"],
+  "Ensino Fundamental": ["Inglês", "Português", "Matemática", "Ciências", "Geografia", "Ensino Religioso", "História", "Arte"],
+};
+const DEFAULT_COMPONENTS = { "Matemática": ["Oficina de Negócios"], "Ensino Religioso": ["Cidadania, Moral e Ética"], "Linguagem": ["Português", "Caligrafia"] };
+const educationStageFor = value => /infantil|educação infantil/i.test(String(value || "")) ? "Educação Infantil" : "Ensino Fundamental";
+
+async function ensureAcademicData(db, userId) {
+  const now = Date.now(); const operations = [];
+  for (const [stage, names] of Object.entries(DEFAULT_SUBJECTS)) names.forEach((name, index) => operations.push(db.prepare(`INSERT OR IGNORE INTO subjects (name, education_stage, sort_order, status, created_by, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?)`)
+    .bind(name, stage, index + 1, userId, now, now)));
+  await db.batch(operations);
+  const subjects = (await db.prepare(`SELECT id, name, education_stage FROM subjects`).all()).results;
+  const componentOps = [];
+  for (const subject of subjects) if (subject.education_stage === "Educação Infantil" && DEFAULT_COMPONENTS[subject.name]) DEFAULT_COMPONENTS[subject.name].forEach((name, index) => componentOps.push(db.prepare(`INSERT OR IGNORE INTO subject_components (subject_id, name, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)`)
+    .bind(subject.id, name, index + 1, now, now)));
+  if (componentOps.length) await db.batch(componentOps);
+  await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at)
+    SELECT s.id, c.id, c.school_year, c.grade_level, c.name, 'active', s.created_at, s.created_by, s.created_at, s.updated_at FROM students s JOIN classes c ON c.id = s.class_id`).run();
+}
+
+async function academicCatalog(db, userId) {
+  await ensureAcademicData(db, userId);
+  const [subjects, components] = await db.batch([
+    db.prepare(`SELECT * FROM subjects ORDER BY education_stage, sort_order, name`),
+    db.prepare(`SELECT * FROM subject_components ORDER BY subject_id, sort_order, name`),
+  ]);
+  return { subjects: subjects.results.map(subject => ({ ...subject, components: components.results.filter(component => Number(component.subject_id) === Number(subject.id)) })) };
+}
+
+async function agendaContext(db, classId, subjectId) {
+  const [klass, subject] = await Promise.all([
+    db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(classId).first(),
+    db.prepare(`SELECT * FROM subjects WHERE id = ? AND status = 'active'`).bind(subjectId).first(),
+  ]);
+  if (!klass || !subject) return null;
+  const educationStage = educationStageFor(`${klass.grade_level} ${klass.name}`);
+  return subject.education_stage === educationStage ? { klass, subject, educationStage } : null;
+}
 const moneyCents = value => {
   if (Number.isInteger(value)) return Math.max(0, value);
   const normalized = String(value ?? "0").trim().replace(/\./g, "").replace(",", ".");
@@ -391,6 +430,50 @@ async function handleApi(request, env, path) {
     return json({ ok: true }, 200, { "set-cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0` });
   }
 
+  if (path === "/api/academic-config" && request.method === "GET") {
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
+    return json(await academicCatalog(db, auth.user.id));
+  }
+
+  if (path === "/api/subjects" && request.method === "POST") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const body = await readJson(request); const name = String(body.name || "").trim(); const stage = String(body.educationStage || ""); const now = Date.now();
+    if (name.length < 2 || !DEFAULT_SUBJECTS[stage]) return json({ error: "Informe disciplina e etapa de ensino." }, 400);
+    try { const result = await db.prepare(`INSERT INTO subjects (name, education_stage, sort_order, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(name, stage, Math.max(0, Number(body.sortOrder) || 0), body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run();
+      await audit(db, auth.user.id, "subject_created", result.meta.last_row_id, `${stage} • ${name}`); return json({ ok: true, id: result.meta.last_row_id }, 201);
+    } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Essa disciplina já existe nesta etapa." }, 409); throw error; }
+  }
+  const subjectMatch = path.match(/^\/api\/subjects\/(\d+)$/);
+  if (subjectMatch && request.method === "PUT") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const body = await readJson(request); const id = Number(subjectMatch[1]); const name = String(body.name || "").trim(); const stage = String(body.educationStage || "");
+    if (name.length < 2 || !DEFAULT_SUBJECTS[stage]) return json({ error: "Informe disciplina e etapa de ensino." }, 400);
+    const result = await db.prepare(`UPDATE subjects SET name = ?, education_stage = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?`)
+      .bind(name, stage, Math.max(0, Number(body.sortOrder) || 0), body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
+    if (!result.meta.changes) return json({ error: "Disciplina não encontrada." }, 404);
+    await audit(db, auth.user.id, "subject_updated", id, `${stage} • ${name}`); return json({ ok: true });
+  }
+
+  if (path === "/api/subject-components" && request.method === "POST") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const body = await readJson(request); const subjectId = Number(body.subjectId); const name = String(body.name || "").trim(); const now = Date.now();
+    if (!Number.isInteger(subjectId) || name.length < 2) return json({ error: "Informe disciplina e conteúdo complementar." }, 400);
+    try { const result = await db.prepare(`INSERT INTO subject_components (subject_id, name, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)`)
+      .bind(subjectId, name, Math.max(0, Number(body.sortOrder) || 0), now, now).run();
+      await audit(db, auth.user.id, "subject_component_created", result.meta.last_row_id, name); return json({ ok: true, id: result.meta.last_row_id }, 201);
+    } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Esse conteúdo complementar já existe." }, 409); throw error; }
+  }
+  const componentMatch = path.match(/^\/api\/subject-components\/(\d+)$/);
+  if (componentMatch && request.method === "PUT") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const body = await readJson(request); const id = Number(componentMatch[1]); const name = String(body.name || "").trim();
+    const result = await db.prepare(`UPDATE subject_components SET name = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?`)
+      .bind(name, Math.max(0, Number(body.sortOrder) || 0), body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
+    if (!result.meta.changes) return json({ error: "Conteúdo complementar não encontrado." }, 404);
+    await audit(db, auth.user.id, "subject_component_updated", id, name); return json({ ok: true });
+  }
+
   if (path === "/api/summary" && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Araguaina" }).format(new Date());
@@ -477,10 +560,12 @@ async function handleApi(request, env, path) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const birthDate = String(body.birthDate || "").trim(); const guardianName = String(body.guardianName || "").trim(); const guardianPhone = String(body.guardianPhone || "").trim(); const classId = Number(body.classId); const now = Date.now();
     if (registration.length < 2 || name.length < 3 || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
-    const klass = await db.prepare(`SELECT id FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first(); if (!klass) return json({ error: "Selecione uma turma ativa." }, 400);
+    const klass = await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first(); if (!klass) return json({ error: "Selecione uma turma ativa." }, 400);
     try {
       const result = await db.prepare(`INSERT INTO students (registration, name, birth_date, guardian_name, guardian_phone, class_id, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`)
         .bind(registration, name, birthDate || null, guardianName || null, guardianPhone || null, classId, auth.user.id, now, now).run();
+      await db.prepare(`INSERT INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
+        .bind(result.meta.last_row_id, classId, klass.school_year, klass.grade_level, klass.name, now, auth.user.id, now, now).run();
       await audit(db, auth.user.id, "student_created", result.meta.last_row_id, `${registration} • ${name}`); return json({ ok: true, id: result.meta.last_row_id }, 201);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Essa matrícula já está cadastrada." }, 409);
@@ -493,10 +578,22 @@ async function handleApi(request, env, path) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const id = Number(studentMatch[1]); const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const classId = Number(body.classId);
     if (registration.length < 2 || name.length < 3 || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
+    const [existing, targetClass] = await Promise.all([
+      db.prepare(`SELECT * FROM students WHERE id = ?`).bind(id).first(),
+      db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first(),
+    ]);
+    if (!existing) return json({ error: "Aluno não encontrado." }, 404);
+    if (!targetClass) return json({ error: "Selecione uma turma ativa." }, 400);
     try {
       const result = await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, status = ?, updated_at = ? WHERE id = ?`)
         .bind(registration, name, String(body.birthDate || "").trim() || null, String(body.guardianName || "").trim() || null, String(body.guardianPhone || "").trim() || null, classId, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
       if (!result.meta.changes) return json({ error: "Aluno não encontrado." }, 404);
+      if (Number(existing.class_id) !== classId) {
+        const now = Date.now();
+        await db.prepare(`UPDATE student_class_history SET result_status = 'transferred', left_at = ?, updated_at = ? WHERE student_id = ? AND class_id = ? AND left_at IS NULL`).bind(now, now, id, existing.class_id).run();
+        await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
+          .bind(id, classId, targetClass.school_year, targetClass.grade_level, targetClass.name, now, auth.user.id, now, now).run();
+      }
       await audit(db, auth.user.id, "student_updated", id, `${registration} • ${name}`); return json({ ok: true });
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Essa matrícula já está cadastrada." }, 409);
@@ -510,28 +607,59 @@ async function handleApi(request, env, path) {
     await db.prepare(`DELETE FROM students WHERE id = ?`).bind(id).run(); await audit(db, auth.user.id, "student_deleted", id, `${existing.registration} • ${existing.name}`); return json({ ok: true });
   }
 
+  const studentHistoryMatch = path.match(/^\/api\/students\/(\d+)\/history$/);
+  if (studentHistoryMatch && request.method === "GET") {
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
+    await ensureAcademicData(db, auth.user.id); const id = Number(studentHistoryMatch[1]);
+    const student = await db.prepare(`SELECT s.*, c.name AS class_name FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?`).bind(id).first();
+    if (!student) return json({ error: "Aluno não encontrado." }, 404);
+    const history = await db.prepare(`SELECT h.*, u.name AS promoted_by_name FROM student_class_history h LEFT JOIN users u ON u.id = h.promoted_by WHERE h.student_id = ? ORDER BY h.school_year DESC, h.joined_at DESC`).bind(id).all();
+    return json({ student, history: history.results });
+  }
+
+  const studentPromoteMatch = path.match(/^\/api\/students\/(\d+)\/promote$/);
+  if (studentPromoteMatch && request.method === "POST") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const id = Number(studentPromoteMatch[1]); const body = await readJson(request); const classId = Number(body.classId); const resultStatus = ["completed", "retained", "transferred"].includes(body.resultStatus) ? body.resultStatus : "completed"; const now = Date.now();
+    await ensureAcademicData(db, auth.user.id);
+    const [student, targetClass] = await Promise.all([db.prepare(`SELECT s.*, c.school_year AS current_year FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?`).bind(id).first(), db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first()]);
+    if (!student || !targetClass) return json({ error: "Aluno ou turma de destino não encontrado." }, 404);
+    if (Number(student.class_id) === classId) return json({ error: "Escolha uma turma diferente da atual." }, 400);
+    if (Number(targetClass.school_year) < Number(student.current_year || 0)) return json({ error: "A turma de destino precisa ser do mesmo ano ou de um ano posterior." }, 400);
+    await db.batch([
+      db.prepare(`UPDATE student_class_history SET result_status = ?, notes = ?, left_at = ?, updated_at = ? WHERE student_id = ? AND class_id = ? AND left_at IS NULL`).bind(resultStatus, String(body.notes || "").trim() || null, now, now, id, student.class_id),
+      db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, notes, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)`).bind(id, classId, targetClass.school_year, targetClass.grade_level, targetClass.name, now, auth.user.id, now, now),
+      db.prepare(`UPDATE students SET class_id = ?, status = 'active', updated_at = ? WHERE id = ?`).bind(classId, now, id),
+    ]);
+    await audit(db, auth.user.id, "student_promoted", id, `${student.name} → ${targetClass.name} • ${targetClass.school_year}`); return json({ ok: true });
+  }
+
   if (path === "/api/agendas" && request.method === "GET") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
-    const result = await db.prepare(`SELECT a.*, c.name AS class_name, u.name AS created_by_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).all();
+    const result = await db.prepare(`SELECT a.*, c.name AS class_name, u.name AS created_by_name, sub.name AS current_subject_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by LEFT JOIN subjects sub ON sub.id = a.subject_id ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).all();
     return json({ agendas: result.results.map(row => ({ ...row, materials: JSON.parse(row.materials || "[]") })) });
   }
 
   if (path === "/api/agendas" && request.method === "POST") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
-    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subject = String(body.subject || "").trim(); const content = String(body.content || "").trim(); const status = String(body.status || "Pendente"); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1 || subject.length < 2 || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
-    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, content, activity, materials, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(date, classId, subject, content, String(body.activity || "").trim() || null, JSON.stringify(materials), status, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
+    await ensureAcademicData(db, auth.user.id);
+    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const content = String(body.content || "").trim(); const status = String(body.status || "Pendente"); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
+    const context = await agendaContext(db, classId, subjectId); if (!context) return json({ error: "A disciplina escolhida não pertence à etapa desta turma." }, 400);
+    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, String(body.activity || "").trim() || null, String(body.homework || "").trim() || null, JSON.stringify(materials), status, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
     await audit(db, auth.user.id, "agenda_created", result.meta.last_row_id, content); return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
 
   const agendaMatch = path.match(/^\/api\/agendas\/(\d+)$/);
   if (agendaMatch && request.method === "PUT") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
-    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subject = String(body.subject || "").trim(); const content = String(body.content || "").trim(); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1 || subject.length < 2 || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
-    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, content = ?, activity = ?, materials = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`)
-      .bind(date, classId, subject, content, String(body.activity || "").trim() || null, JSON.stringify(materials), String(body.status || "Pendente"), String(body.notes || "").trim() || null, Date.now(), id).run();
+    await ensureAcademicData(db, auth.user.id);
+    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const content = String(body.content || "").trim(); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
+    const context = await agendaContext(db, classId, subjectId); if (!context) return json({ error: "A disciplina escolhida não pertence à etapa desta turma." }, 400);
+    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = ?, homework = ?, materials = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`)
+      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, String(body.activity || "").trim() || null, String(body.homework || "").trim() || null, JSON.stringify(materials), String(body.status || "Pendente"), String(body.notes || "").trim() || null, Date.now(), id).run();
     if (!result.meta.changes) return json({ error: "Agenda não encontrada." }, 404);
     await audit(db, auth.user.id, "agenda_updated", id, content); return json({ ok: true });
   }
