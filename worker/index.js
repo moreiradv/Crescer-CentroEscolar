@@ -2,6 +2,7 @@ const INDEX_HTML = __INDEX_HTML__;
 const STYLES = __STYLES__;
 const APP_JS = __APP_JS__;
 const ENROLLMENTS_JS = __ENROLLMENTS_JS__;
+const LIBRARY_JS = __LIBRARY_JS__;
 const LOGO_BASE64 = __LOGO_BASE64__;
 
 const SESSION_COOKIE = "crescer_session";
@@ -210,6 +211,82 @@ async function agendaContext(db, classId, subjectId) {
   const educationStage = educationStageFor(`${klass.grade_level} ${klass.name}`);
   return subject.education_stage === educationStage ? { klass, subject, educationStage } : null;
 }
+
+const LIBRARY_IMAGE_TYPES = new Map([["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]]);
+const libraryKey = value => normalizeUsername(value).replace(/[^a-z0-9 ]/g, "").trim();
+const nullableText = (value, max = 5000) => String(value || "").trim().slice(0, max) || null;
+
+async function handleLibraryApi(request, env, path) {
+  if (!path.startsWith("/api/library-books")) return null;
+  const db = env.DB;
+  const coverMatch = path.match(/^\/api\/library-books\/(\d+)\/cover$/);
+
+  if (coverMatch && request.method === "GET") {
+    const book = await db.prepare(`SELECT cover_key, cover_mime FROM library_books WHERE id = ?`).bind(Number(coverMatch[1])).first();
+    if (!book?.cover_key || !env.BUCKET) return new Response("Capa não cadastrada", { status: 404 });
+    const object = await env.BUCKET.get(book.cover_key); if (!object) return new Response("Capa não encontrada", { status: 404 });
+    return new Response(object.body, { headers: { "content-type": book.cover_mime || object.httpMetadata?.contentType || "application/octet-stream", "cache-control": "public, max-age=3600", "etag": object.httpEtag || "" } });
+  }
+
+  if (coverMatch && request.method === "POST") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    if (!env.BUCKET) return json({ error: "O armazenamento de capas ainda não está disponível." }, 503);
+    const id = Number(coverMatch[1]); const existing = await db.prepare(`SELECT title, cover_key FROM library_books WHERE id = ?`).bind(id).first();
+    if (!existing) return json({ error: "Livro não encontrado." }, 404);
+    const mime = String(request.headers.get("content-type") || "").split(";")[0].toLowerCase(); const extension = LIBRARY_IMAGE_TYPES.get(mime);
+    if (!extension) return json({ error: "Envie uma capa em JPG, PNG ou WebP." }, 400);
+    const bytes = await request.arrayBuffer(); if (!bytes.byteLength || bytes.byteLength > 5 * 1024 * 1024) return json({ error: "A capa deve ter no máximo 5 MB." }, 400);
+    const key = `library-covers/${id}/${randomHex(10)}.${extension}`;
+    await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } });
+    await db.prepare(`UPDATE library_books SET cover_key = ?, cover_mime = ?, updated_by = ?, updated_at = ? WHERE id = ?`).bind(key, mime, auth.user.id, Date.now(), id).run();
+    if (existing.cover_key && existing.cover_key !== key) await env.BUCKET.delete(existing.cover_key);
+    await audit(db, auth.user.id, "library_cover_updated", id, existing.title); return json({ ok: true });
+  }
+
+  if (path === "/api/library-books" && request.method === "GET") {
+    const auth = await requireUser(request, db); if (auth.error) return auth.error;
+    const search = String(new URL(request.url).searchParams.get("search") || "").trim();
+    const result = search
+      ? await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.title LIKE ? OR COALESCE(b.author, '') LIKE ? ORDER BY b.title LIMIT 500`).bind(`%${search}%`, `%${search}%`).all()
+      : await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by ORDER BY b.title LIMIT 500`).all();
+    return json({ books: result.results });
+  }
+
+  const bookMatch = path.match(/^\/api\/library-books\/(\d+)$/);
+  if (bookMatch && request.method === "GET") {
+    const auth = await requireUser(request, db); if (auth.error) return auth.error;
+    const book = await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.id = ?`).bind(Number(bookMatch[1])).first();
+    return book ? json({ book }) : json({ error: "Livro não encontrado." }, 404);
+  }
+
+  if ((path === "/api/library-books" && request.method === "POST") || (bookMatch && request.method === "PUT")) {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const body = await readJson(request); const id = bookMatch ? Number(bookMatch[1]) : 0; const title = String(body.title || "").trim().slice(0, 240); const author = nullableText(body.author, 240); const publicationYear = body.publicationYear === "" || body.publicationYear == null ? null : Number(body.publicationYear); const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity); const now = Date.now();
+    if (title.length < 2) return json({ error: "Informe o nome do livro." }, 400);
+    if (publicationYear !== null && (!Number.isInteger(publicationYear) || publicationYear < 1000 || publicationYear > 2200)) return json({ error: "Informe um ano de publicação válido." }, 400);
+    if (quantity !== null && (!Number.isInteger(quantity) || quantity < 0 || quantity > 100000)) return json({ error: "Informe uma quantidade de exemplares válida." }, 400);
+    const duplicate = await db.prepare(`SELECT id FROM library_books WHERE title_key = ? AND author_key = ? AND id != ? LIMIT 1`).bind(libraryKey(title), libraryKey(author), id).first();
+    if (duplicate) return json({ error: "Já existe um livro com o mesmo nome e autor no acervo." }, 409);
+    const values = [title, libraryKey(title), author, libraryKey(author), nullableText(body.synopsis, 12000), nullableText(body.publisher, 240), publicationYear, nullableText(body.ageRange, 120), quantity, nullableText(body.notes, 5000)];
+    if (id) {
+      const result = await db.prepare(`UPDATE library_books SET title = ?, title_key = ?, author = ?, author_key = ?, synopsis = ?, publisher = ?, publication_year = ?, age_range = ?, quantity = ?, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?`).bind(...values, auth.user.id, now, id).run();
+      if (!result.meta.changes) return json({ error: "Livro não encontrado." }, 404);
+      await audit(db, auth.user.id, "library_book_updated", id, title); return json({ ok: true, id });
+    }
+    const year = new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "America/Araguaina" }).format(new Date()); const code = `BIB-${year}-${randomHex(4).toUpperCase()}`;
+    const result = await db.prepare(`INSERT INTO library_books (accession_code, title, title_key, author, author_key, synopsis, publisher, publication_year, age_range, quantity, notes, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(code, ...values, auth.user.id, auth.user.id, now, now).run();
+    await audit(db, auth.user.id, "library_book_created", result.meta.last_row_id, title); return json({ ok: true, id: result.meta.last_row_id, accessionCode: code }, 201);
+  }
+
+  if (bookMatch && request.method === "DELETE") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const id = Number(bookMatch[1]); const existing = await db.prepare(`SELECT title, cover_key FROM library_books WHERE id = ?`).bind(id).first(); if (!existing) return json({ error: "Livro não encontrado." }, 404);
+    if (existing.cover_key && env.BUCKET) await env.BUCKET.delete(existing.cover_key);
+    await db.prepare(`DELETE FROM library_books WHERE id = ?`).bind(id).run(); await audit(db, auth.user.id, "library_book_deleted", id, existing.title); return json({ ok: true });
+  }
+
+  return json({ error: "Rota da Biblioteca não encontrada." }, 404);
+}
 const moneyCents = value => {
   if (Number.isInteger(value)) return Math.max(0, value);
   const normalized = String(value ?? "0").trim().replace(/\./g, "").replace(",", ".");
@@ -395,6 +472,9 @@ async function handleEnrollmentApi(request, db, path) {
 async function handleApi(request, env, path) {
   const db = env.DB;
   if (!db) return json({ error: "Banco de dados indisponível." }, 503);
+
+  const libraryResponse = await handleLibraryApi(request, env, path);
+  if (libraryResponse) return libraryResponse;
 
   const enrollmentResponse = await handleEnrollmentApi(request, db, path);
   if (enrollmentResponse) return enrollmentResponse;
@@ -814,6 +894,7 @@ export default {
       if (url.pathname === "/styles.css") return new Response(STYLES, { headers: securityHeaders("text/css; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/app.js") return new Response(APP_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/enrollments.js") return new Response(ENROLLMENTS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
+      if (url.pathname === "/library.js") return new Response(LIBRARY_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/assets/logo-crescer.png") return new Response(decodeBase64(LOGO_BASE64), { headers: securityHeaders("image/png", "public, max-age=86400") });
       return new Response("Not found", { status: 404, headers: securityHeaders("text/plain; charset=utf-8") });
     } catch (error) {

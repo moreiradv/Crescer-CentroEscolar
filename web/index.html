@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261019-complete-system" />
+  <link rel="stylesheet" href="./styles.css?v=20261028-library" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -64,6 +64,7 @@
         <button class="nav-item" data-page="agendas" data-pedagogical-only><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
         <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
+        <button class="nav-item" data-page="biblioteca"><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
@@ -122,6 +123,7 @@
               <button data-open-modal="agendaModal" data-pedagogical-only><span class="quick-icon blue">＋</span><strong>Nova agenda</strong><small>Registrar atividade</small></button>
               <button data-page-link="frequencia" data-pedagogical-only><span class="quick-icon green">✓</span><strong>Lançar frequência</strong><small>Registrar presença</small></button>
               <button data-page-link="agendas" data-pedagogical-only><span class="quick-icon orange">⌕</span><strong>Consultar agenda</strong><small>Ver todos os registros</small></button>
+              <button data-page-link="biblioteca"><span class="quick-icon violet">▥</span><strong>Biblioteca</strong><small>Consultar o acervo</small></button>
               <button data-page-link="indicadores" data-pedagogical-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
             </div>
           </article>
@@ -167,6 +169,13 @@
         <section class="insight-hero"><div><span class="soft-label">Resumo em tempo real</span><h2 id="indicatorHeadline">Comece lançando a frequência.</h2><p id="indicatorDescription">Os indicadores serão calculados automaticamente com os registros salvos.</p></div><div class="hero-score"><strong id="indicatorScore">0%</strong><span>índice geral</span><b id="indicatorTotal">0 registros</b></div></section>
         <section class="indicator-grid"><article class="panel"><div class="panel-head"><div><h2>Frequência por turma</h2><p>Ranking de todos os registros</p></div></div><div class="rank-list" id="classRanking"><p class="empty-state">Nenhuma frequência registrada.</p></div></article><article class="panel"><div class="panel-head"><div><h2>Distribuição do período</h2><p id="distributionTotal">0 registros processados</p></div></div><div class="distribution"><div class="big-donut" id="indicatorDonut"></div><div><p><i class="present"></i><span>Presentes</span><strong id="distPresent">0</strong></p><p><i class="late"></i><span>Atrasados</span><strong id="distLate">0</strong></p><p><i class="justified"></i><span>Justificados</span><strong id="distJustified">0</strong></p><p><i class="absent"></i><span>Não presentes</span><strong id="distAbsent">0</strong></p></div></div></article></section>
         <section class="panel risk-panel"><div class="panel-head"><div><h2>Alunos que pedem atenção</h2><p>Frequência abaixo de 85% em todos os registros</p></div></div><div class="risk-grid" id="riskStudents"><p class="empty-state">Nenhum aluno abaixo do índice de atenção.</p></div></section>
+      </div>
+
+      <div class="page" id="page-biblioteca">
+        <section class="page-head"><div><p class="eyebrow">Acervo escolar</p><h1>Biblioteca</h1><p>Cadastre, organize e consulte as obras do Crescer Centro Educacional.</p></div><button class="primary-btn" id="newLibraryBookBtn" data-manager-only>＋ Cadastrar livro</button></section>
+        <section class="library-hero panel"><div><span class="library-hero-icon">▥</span><div><strong id="libraryBookCount">0</strong><p>livros catalogados no acervo</p></div></div><label>Pesquisar por nome ou autor<span class="search-field"><b>⌕</b><input id="librarySearch" placeholder="Digite para pesquisar..." /></span></label></section>
+        <section><div class="library-section-head"><div><h2>Prateleira digital</h2><p>Selecione uma obra para visualizar todos os detalhes.</p></div></div><div class="library-grid" id="libraryGrid"><article class="panel empty-state">Nenhum livro cadastrado.</article></div></section>
+        <section class="panel data-panel library-list-panel"><div class="table-head"><div><h2>Lista de Livros</h2><p><span id="libraryListCount">0</span> registros encontrados</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Identificador</th><th>Livro</th><th>Autor(a)</th><th>Editora</th><th>Ano</th><th>Exemplares</th><th>Ações</th></tr></thead><tbody id="libraryTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-matriculas">
@@ -247,6 +256,14 @@
     </form>
   </dialog>
 
+  <dialog class="modal library-modal" id="libraryBookModal">
+    <form method="dialog" id="libraryBookForm"><div class="modal-head"><div><span class="soft-label" id="libraryModalLabel">Novo cadastro</span><h2 id="libraryModalTitle">Cadastrar Livro</h2><p>Preencha o que estiver disponível; os demais dados podem ser incluídos depois.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><input type="hidden" id="libraryBookId" />
+      <div class="library-form-layout"><div class="library-cover-field"><div class="library-cover-preview" id="libraryCoverPreview"><span>▥</span><p>Capa não cadastrada</p></div><label class="secondary-btn library-file-btn">Enviar capa<input id="libraryCoverFile" type="file" accept="image/jpeg,image/png,image/webp" /></label><small>JPG, PNG ou WebP • máximo 5 MB</small></div><div class="form-grid"><label class="full">Nome do livro *<input id="libraryTitle" maxlength="240" required /></label><label>Autor(a)<input id="libraryAuthor" maxlength="240" /></label><label>Editora<input id="libraryPublisher" maxlength="240" /></label><label>Ano de publicação<input id="libraryYear" type="number" min="1000" max="2200" /></label><label>Faixa etária indicada<input id="libraryAgeRange" placeholder="Ex.: 8 a 10 anos" /></label><label>Quantidade de exemplares<input id="libraryQuantity" type="number" min="0" /></label><label class="full">Sinopse<textarea id="librarySynopsis" rows="5"></textarea></label><label class="full">Observações<textarea id="libraryNotes" rows="3"></textarea></label></div></div><p class="login-error hidden" id="libraryFormError"></p><div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteLibraryBookBtn">Excluir</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar Livro</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal library-detail-modal" id="libraryDetailModal"><div><div class="modal-head"><div><span class="soft-label" id="libraryDetailCode">Biblioteca</span><h2 id="libraryDetailTitle">Livro</h2><p id="libraryDetailAuthor">Autor não informado</p></div><button class="modal-close" type="button" id="closeLibraryDetail">×</button></div><div id="libraryDetailContent" class="library-detail-content"></div><div class="modal-actions"><button class="secondary-btn hidden" type="button" id="editLibraryFromDetail" data-manager-only>Editar</button><span class="action-spacer"></span><button class="primary-btn" type="button" id="closeLibraryDetailBottom">Fechar</button></div></div></dialog>
+
   <dialog class="modal enrollment-modal" id="enrollmentModal">
     <form method="dialog" id="enrollmentForm">
       <div class="modal-head"><div><span class="soft-label" id="enrollmentModalLabel">Nova matrícula</span><h2 id="enrollmentModalTitle">Cadastrar aluno</h2><p>Preencha as etapas; os valores são calculados automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
@@ -284,7 +301,8 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261020-academic"></script>
+  <script src="./app.js?v=20261028-library"></script>
   <script src="./enrollments.js?v=20261020-academic"></script>
+  <script src="./library.js?v=20261028-library"></script>
 </body>
 </html>
