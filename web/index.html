@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261028-library" />
+  <link rel="stylesheet" href="./styles.css?v=20261028-teachers" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -63,11 +63,12 @@
         <p class="nav-label">Acompanhamento</p>
         <button class="nav-item" data-page="agendas" data-pedagogical-only><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
-        <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
-        <button class="nav-item" data-page="biblioteca"><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
+        <button class="nav-item" data-page="indicadores" data-manager-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
+        <button class="nav-item" data-page="biblioteca" data-non-teacher-only><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
+        <button class="nav-item" data-page="professores" data-manager-only><span class="nav-icon">♧</span><span>Professores</span></button>
         <button class="nav-item" data-page="historico" data-manager-only><span class="nav-icon">↺</span><span>Histórico</span></button>
         <button class="nav-item" data-page="usuarios" data-manager-only><span class="nav-icon">♙</span><span>Usuários</span></button>
       </nav>
@@ -96,6 +97,8 @@
           <div class="head-actions"><button class="secondary-btn" id="exportBtn">⇩ Exportar relatório</button><button class="primary-btn" data-open-modal="agendaModal" data-pedagogical-only>＋ Novo registro</button></div>
         </section>
 
+        <section class="teacher-scope-banner hidden" id="teacherScopeBanner"><span class="teacher-scope-icon">♧</span><div><small>Seu acesso de professor</small><h2 id="teacherScopeTitle">Turma vinculada</h2><p id="teacherScopeMeta">Frequência e Agenda Escolar</p></div><button class="secondary-btn" id="teacherChangePassword">Alterar senha</button></section>
+
         <section class="metric-grid">
           <article class="metric-card"><div class="metric-icon blue">▦</div><div class="metric-top"><span>Turmas ativas</span><b class="up">Banco online</b></div><strong id="metricClasses">0</strong><small>Cadastros compartilhados</small></article>
           <article class="metric-card"><div class="metric-icon violet">♙</div><div class="metric-top"><span>Alunos</span><b class="up">Ao vivo</b></div><strong id="metricStudents">0</strong><small>Vinculados às turmas</small></article>
@@ -123,8 +126,8 @@
               <button data-open-modal="agendaModal" data-pedagogical-only><span class="quick-icon blue">＋</span><strong>Nova agenda</strong><small>Registrar atividade</small></button>
               <button data-page-link="frequencia" data-pedagogical-only><span class="quick-icon green">✓</span><strong>Lançar frequência</strong><small>Registrar presença</small></button>
               <button data-page-link="agendas" data-pedagogical-only><span class="quick-icon orange">⌕</span><strong>Consultar agenda</strong><small>Ver todos os registros</small></button>
-              <button data-page-link="biblioteca"><span class="quick-icon violet">▥</span><strong>Biblioteca</strong><small>Consultar o acervo</small></button>
-              <button data-page-link="indicadores" data-pedagogical-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
+              <button data-page-link="biblioteca" data-non-teacher-only><span class="quick-icon violet">▥</span><strong>Biblioteca</strong><small>Consultar o acervo</small></button>
+              <button data-page-link="indicadores" data-manager-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
             </div>
           </article>
 
@@ -195,8 +198,14 @@
         <section class="panel audit-panel" id="auditList"><p class="empty-state">Nenhuma atividade registrada.</p></section>
       </div>
 
+      <div class="page" id="page-professores">
+        <section class="page-head"><div><p class="eyebrow">Acessos pedagógicos</p><h1>Professores</h1><p>Vincule cada conta somente à turma, disciplina e ano letivo autorizados.</p></div><div class="head-actions"><button class="secondary-btn" id="exportTeacherAccess">⇩ Lista de acessos</button><button class="primary-btn" id="newTeacherBtn">＋ Novo professor</button></div></section>
+        <section class="teacher-management-note"><span>🔒</span><div><strong>Senhas protegidas</strong><p>O nome de usuário fica visível. A senha temporária aparece somente ao criar ou redefinir o acesso e deve ser trocada no primeiro login.</p></div></section>
+        <section class="teacher-account-grid" id="teacherAccountGrid"><article class="panel empty-state">Nenhuma conta de professor cadastrada.</article></section>
+      </div>
+
       <div class="page" id="page-usuarios">
-        <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Cadastre, edite e remova os acessos da equipe.</p></div><button class="primary-btn" id="newUserBtn">＋ Novo usuário</button></section>
+        <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Consulte os usuários e redefina senhas temporárias com segurança.</p></div><div class="head-actions"><button class="secondary-btn" id="exportUserAccess">⇩ Lista de usuários</button><button class="primary-btn" id="newUserBtn">＋ Novo usuário</button></div></section>
         <section class="panel user-panel"><div class="user-cards" id="userCards"><p class="loading-state">Carregando usuários...</p></div></section>
       </div>
     </main>
@@ -246,15 +255,20 @@
       <input type="hidden" id="userId" />
       <div class="form-grid">
         <label>Nome completo<input id="userFullName" placeholder="Nome do usuário" required /></label>
-        <label>Nome de usuário<input id="userLogin" placeholder="Usuário para entrar" required /></label>
+        <label>USUÁRIO<input id="userLogin" placeholder="Ex.: ciencias6-2027" required /><small>Use um nome curto e fácil.</small></label>
         <label>Perfil<select id="userRole" required><option>Coordenação</option><option>Professor</option><option>Administrador</option><option>Financeiro</option></select></label>
         <label>Status<select id="userStatus" required><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
-        <label class="full">Senha<input id="userPassword" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /><small id="passwordHint">Obrigatória para novos usuários.</small></label>
+        <label class="full">SENHA INICIAL<span class="password-generator"><input id="userPassword" type="text" minlength="8" placeholder="Mínimo de 8 caracteres" /><button class="secondary-btn" type="button" id="generateUserPassword">Gerar senha</button></span><small id="passwordHint">Obrigatória para novos usuários e trocada no primeiro acesso.</small></label>
       </div>
+      <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Vínculo do professor</h3><p>O backend limitará o acesso exatamente a este vínculo.</p></div></div><div class="form-grid"><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Turma e ano letivo<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button></section>
       <p class="login-error hidden" id="userFormError" role="alert"></p>
-      <div class="modal-actions user-modal-actions"><button class="danger-btn hidden" type="button" id="deleteUserBtn">Remover usuário</button><span></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar usuário</button></div>
+      <div class="modal-actions user-modal-actions"><button class="danger-btn hidden" type="button" id="deleteUserBtn">Remover usuário</button><button class="secondary-btn hidden" type="button" id="resetUserPassword">Redefinir senha</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar usuário</button></div>
     </form>
   </dialog>
+
+  <dialog class="modal credential-modal" id="credentialModal"><div><div class="modal-head"><div><span class="soft-label">Credencial temporária</span><h2>Acesso criado com segurança</h2><p>Copie e entregue ao usuário. Esta senha não poderá ser consultada novamente.</p></div><button class="modal-close" type="button" id="closeCredentialModal">×</button></div><div class="credential-card"><label>USUÁRIO<strong id="credentialUsername">—</strong></label><label>SENHA TEMPORÁRIA<strong id="credentialPassword">—</strong></label><p>O sistema exigirá uma nova senha no primeiro acesso.</p></div><div class="modal-actions"><button class="secondary-btn" type="button" id="copyCredential">Copiar acesso</button><span class="action-spacer"></span><button class="primary-btn" type="button" id="finishCredential">Concluir</button></div></div></dialog>
+
+  <dialog class="modal password-change-modal" id="passwordChangeModal"><form method="dialog" id="passwordChangeForm"><div class="modal-head"><div><span class="soft-label">Segurança da conta</span><h2>Crie sua nova senha</h2><p>Por segurança, a senha temporária deve ser substituída antes de usar o sistema.</p></div></div><div class="form-grid"><label class="full">Nova senha<input id="newOwnPassword" type="password" minlength="8" required /></label><label class="full">Confirmar nova senha<input id="confirmOwnPassword" type="password" minlength="8" required /></label></div><p class="login-error hidden" id="passwordChangeError"></p><div class="modal-actions"><button class="danger-btn" type="button" id="passwordChangeLogout">Sair</button><span class="action-spacer"></span><button class="primary-btn" type="submit" value="default">Salvar nova senha</button></div></form></dialog>
 
   <dialog class="modal library-modal" id="libraryBookModal">
     <form method="dialog" id="libraryBookForm"><div class="modal-head"><div><span class="soft-label" id="libraryModalLabel">Novo cadastro</span><h2 id="libraryModalTitle">Cadastrar Livro</h2><p>Preencha o que estiver disponível; os demais dados podem ser incluídos depois.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><input type="hidden" id="libraryBookId" />
@@ -301,7 +315,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261028-library"></script>
+  <script src="./app.js?v=20261028-teachers"></script>
   <script src="./enrollments.js?v=20261020-academic"></script>
   <script src="./library.js?v=20261028-library"></script>
 </body>
