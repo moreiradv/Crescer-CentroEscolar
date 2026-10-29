@@ -377,7 +377,7 @@ async function pricedEnrollmentItems(db, gradeId, bookSelection, uniformSelectio
   for (const selected of uniforms) {
     const product = uniformRows.find(row => Number(row.id) === selected.id);
     if (product.stock_enabled && selected.quantity > Number(product.stock_quantity)) throw new Error(`Estoque insuficiente para ${product.name} ${product.size}.`);
-    items.push({ type: "uniform", sourceId: product.id, description: product.name, size: product.size, unit: Number(product.price_cents), quantity: selected.quantity, subtotal: Number(product.price_cents) * selected.quantity, stockEnabled: !!product.stock_enabled });
+    items.push({ type: "uniform", sourceId: product.id, description: product.name, size: product.size, category: product.category || "regular", unit: Number(product.price_cents), quantity: selected.quantity, subtotal: Number(product.price_cents) * selected.quantity, stockEnabled: !!product.stock_enabled });
   }
   return items;
 }
@@ -428,19 +428,20 @@ async function handleEnrollmentApi(request, db, path) {
   }
 
   if (path === "/api/uniforms" && request.method === "POST") {
-    const body = await readJson(request); const name = String(body.name || "").trim(); const size = String(body.size || "").trim(); const now = Date.now();
-    if (name.length < 2 || !size) return json({ error: "Informe a peça e o tamanho." }, 400);
+    const body = await readJson(request); const name = String(body.name || "").trim(); const size = String(body.size || "").trim(); const category = body.category === "physical_education" ? "physical_education" : "regular"; const productType = body.productType === "set" ? "set" : "single"; const components = String(body.components || "").trim(); const now = Date.now();
+    if (name.length < 2 || !size || (productType === "set" && components.length < 3)) return json({ error: "Informe produto, tamanho e os componentes do conjunto." }, 400);
     try {
-      const result = await db.prepare(`INSERT INTO uniform_items (name, size, price_cents, stock_enabled, stock_quantity, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(name, size, moneyCents(body.priceCents), body.stockEnabled ? 1 : 0, Math.max(0, Number(body.stockQuantity) || 0), body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run();
+      const result = await db.prepare(`INSERT INTO uniform_items (name, size, category, product_type, components, price_cents, stock_enabled, stock_quantity, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(name, size, category, productType, components || null, moneyCents(body.priceCents), body.stockEnabled ? 1 : 0, Math.max(0, Number(body.stockQuantity) || 0), body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run();
       await audit(db, auth.user.id, "uniform_created", result.meta.last_row_id, `${name} • ${size}`); return json({ ok: true, id: result.meta.last_row_id }, 201);
     } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Essa peça e tamanho já estão cadastrados." }, 409); throw error; }
   }
   const uniformMatch = path.match(/^\/api\/uniforms\/(\d+)$/);
   if (uniformMatch && request.method === "PUT") {
-    const body = await readJson(request); const id = Number(uniformMatch[1]); const name = String(body.name || "").trim(); const size = String(body.size || "").trim();
-    const result = await db.prepare(`UPDATE uniform_items SET name = ?, size = ?, price_cents = ?, stock_enabled = ?, stock_quantity = ?, status = ?, updated_at = ? WHERE id = ?`)
-      .bind(name, size, moneyCents(body.priceCents), body.stockEnabled ? 1 : 0, Math.max(0, Number(body.stockQuantity) || 0), body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
+    const body = await readJson(request); const id = Number(uniformMatch[1]); const name = String(body.name || "").trim(); const size = String(body.size || "").trim(); const category = body.category === "physical_education" ? "physical_education" : "regular"; const productType = body.productType === "set" ? "set" : "single"; const components = String(body.components || "").trim();
+    if (name.length < 2 || !size || (productType === "set" && components.length < 3)) return json({ error: "Informe produto, tamanho e os componentes do conjunto." }, 400);
+    const result = await db.prepare(`UPDATE uniform_items SET name = ?, size = ?, category = ?, product_type = ?, components = ?, price_cents = ?, stock_enabled = ?, stock_quantity = ?, status = ?, updated_at = ? WHERE id = ?`)
+      .bind(name, size, category, productType, components || null, moneyCents(body.priceCents), body.stockEnabled ? 1 : 0, Math.max(0, Number(body.stockQuantity) || 0), body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
     if (!result.meta.changes) return json({ error: "Peça não encontrada." }, 404);
     await audit(db, auth.user.id, "uniform_updated", id, `${name} • ${size}`); return json({ ok: true });
   }
@@ -455,6 +456,15 @@ async function handleEnrollmentApi(request, db, path) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { where.push(`e.enrollment_date <= ?`); values.push(to); }
     const result = await db.prepare(`SELECT e.*, u.name AS created_by_name FROM enrollments e LEFT JOIN users u ON u.id = e.created_by ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY e.enrollment_date DESC, e.created_at DESC LIMIT 500`).bind(...values).all();
     return json({ enrollments: result.results });
+  }
+
+  if (path === "/api/enrollment-student-lookup" && request.method === "GET") {
+    const params = new URL(request.url).searchParams; const registration = String(params.get("registration") || "").trim(); const name = String(params.get("name") || "").trim(); const birthDate = String(params.get("birth_date") || "").trim();
+    if (!registration && (name.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate))) return json({ student: null });
+    const student = registration
+      ? await db.prepare(`SELECT s.*, c.name AS class_name, c.school_year FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.registration = ? LIMIT 1`).bind(registration).first()
+      : await db.prepare(`SELECT s.*, c.name AS class_name, c.school_year FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE lower(trim(s.name)) = lower(trim(?)) AND s.birth_date = ? LIMIT 1`).bind(name, birthDate).first();
+    return json({ student: student || null });
   }
 
   const enrollmentMatch = path.match(/^\/api\/enrollments\/(\d+)$/);
@@ -473,31 +483,40 @@ async function handleEnrollmentApi(request, db, path) {
     if (id && !existing) return json({ error: "Matrícula não encontrada." }, 404);
     const registration = String(body.registration || existing?.registration || "").trim(); const studentName = String(body.studentName || "").trim(); const birthDate = String(body.birthDate || ""); const guardianName = String(body.guardianName || "").trim(); const guardianPhone = String(body.guardianPhone || "").trim(); const enrollmentDate = String(body.enrollmentDate || ""); const gradeId = Number(body.gradeId); const classId = Number(body.classId) || null; const notes = String(body.notes || "").trim(); const completing = body.status === "completed"; const now = Date.now();
     if (registration.length < 2 || studentName.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || guardianName.length < 3 || guardianPhone.length < 8 || !/^\d{4}-\d{2}-\d{2}$/.test(enrollmentDate) || !Number.isInteger(gradeId)) return json({ error: "Preencha matrícula, aluno, nascimento, série, responsável, telefone e data." }, 400);
-    const duplicate = await db.prepare(`SELECT id FROM enrollments WHERE registration = ? AND id != ? LIMIT 1`).bind(registration, id || 0).first(); if (duplicate) return json({ error: "Esse número de matrícula já está em uso." }, 409);
-    const studentExists = completing || existing?.status === "completed" ? await db.prepare(`SELECT id FROM students WHERE registration = ? LIMIT 1`).bind(registration).first() : null;
-    if (studentExists && Number(studentExists.id) !== Number(existing?.student_id || 0)) return json({ error: "Já existe um aluno com essa matrícula no cadastro escolar." }, 409);
     const grade = await db.prepare(`SELECT * FROM grades WHERE id = ?`).bind(gradeId).first(); if (!grade || grade.status !== "active") return json({ error: "Selecione uma série ativa." }, 400);
     const klass = classId ? await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first() : null; if (classId && !klass) return json({ error: "Selecione uma turma ativa." }, 400);
+    const schoolYear = Number(klass?.school_year || enrollmentDate.slice(0, 4));
+    const duplicate = await db.prepare(`SELECT id FROM enrollments WHERE registration = ? AND school_year = ? AND id != ? AND status != 'cancelled' LIMIT 1`).bind(registration, schoolYear, id || 0).first(); if (duplicate) return json({ error: "Este aluno já possui matrícula neste ano letivo." }, 409);
+    const studentExists = completing || existing?.status === "completed" ? await db.prepare(`SELECT * FROM students WHERE registration = ? OR (lower(trim(name)) = lower(trim(?)) AND birth_date = ?) ORDER BY CASE WHEN registration = ? THEN 0 ELSE 1 END LIMIT 1`).bind(registration, studentName, birthDate, registration).first() : null;
+    if (studentExists && existing?.student_id && Number(studentExists.id) !== Number(existing.student_id)) return json({ error: "Os dados informados pertencem a outro cadastro de aluno." }, 409);
+    if (studentExists) { const sameYear = await db.prepare(`SELECT id FROM enrollments WHERE student_id = ? AND school_year = ? AND id != ? AND status != 'cancelled' LIMIT 1`).bind(studentExists.id, schoolYear, id || 0).first(); if (sameYear) return json({ error: "Este aluno já possui matrícula neste ano letivo." }, 409); }
     if (existing?.status === "completed") {
-      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, grade_id = ?, class_id = ?, class_name_snapshot = ?, guardian_name = ?, guardian_phone = ?, enrollment_date = ?, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?`)
-        .bind(registration, studentName, birthDate, gradeId, classId, klass?.name || null, guardianName, guardianPhone, enrollmentDate, notes || null, auth.user.id, now, id).run();
-      if (existing.student_id) await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, updated_at = ? WHERE id = ?`).bind(registration, studentName, birthDate, guardianName, guardianPhone, classId, now, existing.student_id).run();
+      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, grade_id = ?, class_id = ?, class_name_snapshot = ?, school_year = ?, guardian_name = ?, guardian_phone = ?, enrollment_date = ?, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?`)
+        .bind(registration, studentName, birthDate, gradeId, classId, klass?.name || null, schoolYear, guardianName, guardianPhone, enrollmentDate, notes || null, auth.user.id, now, id).run();
+      if (existing.student_id) {
+        const current = await db.prepare(`SELECT class_id FROM students WHERE id = ?`).bind(existing.student_id).first();
+        await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, updated_at = ? WHERE id = ?`).bind(registration, studentName, birthDate, guardianName, guardianPhone, classId, now, existing.student_id).run();
+        if (classId && Number(current?.class_id) !== classId) await db.batch([
+          db.prepare(`UPDATE student_class_history SET result_status = 'transferred', left_at = ?, updated_at = ? WHERE student_id = ? AND class_id = ? AND left_at IS NULL`).bind(now, now, existing.student_id, current?.class_id),
+          db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`).bind(existing.student_id, classId, schoolYear, klass.grade_level, klass.name, now, auth.user.id, now, now),
+        ]);
+      }
       await db.prepare(`INSERT INTO enrollment_history (enrollment_id, user_id, action, details, created_at) VALUES (?, ?, 'updated', ?, ?)`).bind(id, auth.user.id, "Dados cadastrais atualizados; valores originais preservados", now).run();
       await audit(db, auth.user.id, "enrollment_updated", id, `${registration} • ${studentName}`); return json({ ok: true, id, preservedPrices: true });
     }
-    const items = await pricedEnrollmentItems(db, gradeId, body.books, body.uniforms); const booksTotal = items.filter(item => item.type === "book").reduce((sum, item) => sum + item.subtotal, 0); const uniformsTotal = items.filter(item => item.type === "uniform").reduce((sum, item) => sum + item.subtotal, 0); const includeFirst = body.includeFirstMonthly ? 1 : 0; const initialTotal = Number(grade.enrollment_fee_cents) + booksTotal + uniformsTotal + (includeFirst ? Number(grade.monthly_fee_cents) : 0); const status = completing ? "completed" : "draft";
+    const items = await pricedEnrollmentItems(db, gradeId, body.books, body.uniforms); const booksTotal = items.filter(item => item.type === "book").reduce((sum, item) => sum + item.subtotal, 0); const uniformRegularTotal = items.filter(item => item.type === "uniform" && item.category !== "physical_education").reduce((sum, item) => sum + item.subtotal, 0); const uniformPhysicalTotal = items.filter(item => item.type === "uniform" && item.category === "physical_education").reduce((sum, item) => sum + item.subtotal, 0); const uniformsTotal = uniformRegularTotal + uniformPhysicalTotal; const includeFirst = body.includeFirstMonthly ? 1 : 0; const initialTotal = Number(grade.enrollment_fee_cents) + booksTotal + uniformsTotal + (includeFirst ? Number(grade.monthly_fee_cents) : 0); const status = completing ? "completed" : "draft";
     let enrollmentId = id;
     if (!id) {
       const code = `MAT-${enrollmentDate.replace(/-/g, "")}-${randomHex(3).toUpperCase()}`;
-      const result = await db.prepare(`INSERT INTO enrollments (code, registration, student_name, birth_date, grade_id, grade_name_snapshot, class_id, class_name_snapshot, guardian_name, guardian_phone, enrollment_date, notes, status, enrollment_fee_cents, monthly_fee_cents, books_total_cents, uniforms_total_cents, include_first_monthly, initial_total_cents, created_by, updated_by, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(code, registration, studentName, birthDate, gradeId, grade.name, classId, klass?.name || null, guardianName, guardianPhone, enrollmentDate, notes || null, status, grade.enrollment_fee_cents, grade.monthly_fee_cents, booksTotal, uniformsTotal, includeFirst, initialTotal, auth.user.id, auth.user.id, now, now, completing ? now : null).run();
+      const result = await db.prepare(`INSERT INTO enrollments (code, registration, student_name, birth_date, grade_id, grade_name_snapshot, class_id, class_name_snapshot, school_year, guardian_name, guardian_phone, enrollment_date, notes, status, enrollment_fee_cents, monthly_fee_cents, books_total_cents, uniforms_total_cents, uniform_regular_total_cents, uniform_physical_total_cents, include_first_monthly, initial_total_cents, created_by, updated_by, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(code, registration, studentName, birthDate, gradeId, grade.name, classId, klass?.name || null, schoolYear, guardianName, guardianPhone, enrollmentDate, notes || null, status, grade.enrollment_fee_cents, grade.monthly_fee_cents, booksTotal, uniformsTotal, uniformRegularTotal, uniformPhysicalTotal, includeFirst, initialTotal, auth.user.id, auth.user.id, now, now, completing ? now : null).run();
       enrollmentId = Number(result.meta.last_row_id);
     } else {
-      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, grade_id = ?, grade_name_snapshot = ?, class_id = ?, class_name_snapshot = ?, guardian_name = ?, guardian_phone = ?, enrollment_date = ?, notes = ?, status = ?, enrollment_fee_cents = ?, monthly_fee_cents = ?, books_total_cents = ?, uniforms_total_cents = ?, include_first_monthly = ?, initial_total_cents = ?, updated_by = ?, updated_at = ?, completed_at = ? WHERE id = ?`)
-        .bind(registration, studentName, birthDate, gradeId, grade.name, classId, klass?.name || null, guardianName, guardianPhone, enrollmentDate, notes || null, status, grade.enrollment_fee_cents, grade.monthly_fee_cents, booksTotal, uniformsTotal, includeFirst, initialTotal, auth.user.id, now, completing ? now : null, id).run();
+      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, grade_id = ?, grade_name_snapshot = ?, class_id = ?, class_name_snapshot = ?, school_year = ?, guardian_name = ?, guardian_phone = ?, enrollment_date = ?, notes = ?, status = ?, enrollment_fee_cents = ?, monthly_fee_cents = ?, books_total_cents = ?, uniforms_total_cents = ?, uniform_regular_total_cents = ?, uniform_physical_total_cents = ?, include_first_monthly = ?, initial_total_cents = ?, updated_by = ?, updated_at = ?, completed_at = ? WHERE id = ?`)
+        .bind(registration, studentName, birthDate, gradeId, grade.name, classId, klass?.name || null, schoolYear, guardianName, guardianPhone, enrollmentDate, notes || null, status, grade.enrollment_fee_cents, grade.monthly_fee_cents, booksTotal, uniformsTotal, uniformRegularTotal, uniformPhysicalTotal, includeFirst, initialTotal, auth.user.id, now, completing ? now : null, id).run();
     }
     const operations = [db.prepare(`DELETE FROM enrollment_items WHERE enrollment_id = ?`).bind(enrollmentId)];
-    items.forEach(item => operations.push(db.prepare(`INSERT INTO enrollment_items (enrollment_id, item_type, source_id, description, size, unit_price_cents, quantity, subtotal_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(enrollmentId, item.type, item.sourceId, item.description, item.size, item.unit, item.quantity, item.subtotal)));
+    items.forEach(item => operations.push(db.prepare(`INSERT INTO enrollment_items (enrollment_id, item_type, source_id, description, size, category, unit_price_cents, quantity, subtotal_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(enrollmentId, item.type, item.sourceId, item.description, item.size, item.category || null, item.unit, item.quantity, item.subtotal)));
     if (completing) items.filter(item => item.stockEnabled).forEach(item => operations.push(db.prepare(item.type === "book" ? `UPDATE books SET stock_quantity = stock_quantity - ?, updated_at = ? WHERE id = ? AND stock_quantity >= ?` : `UPDATE uniform_items SET stock_quantity = stock_quantity - ?, updated_at = ? WHERE id = ? AND stock_quantity >= ?`).bind(item.quantity, now, item.sourceId, item.quantity)));
     operations.push(db.prepare(`INSERT INTO enrollment_history (enrollment_id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)`).bind(enrollmentId, auth.user.id, completing ? "completed" : (id ? "updated_draft" : "created_draft"), `${registration} • ${studentName}`, now));
     await db.batch(operations);
@@ -505,8 +524,12 @@ async function handleEnrollmentApi(request, db, path) {
       let studentId = studentExists?.id || null;
       if (!studentId) {
         const studentResult = await db.prepare(`INSERT INTO students (registration, name, birth_date, guardian_name, guardian_phone, class_id, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).bind(registration, studentName, birthDate, guardianName, guardianPhone, classId, auth.user.id, now, now).run(); studentId = studentResult.meta.last_row_id;
+      } else {
+        if (classId && Number(studentExists?.class_id) !== classId) await db.prepare(`UPDATE student_class_history SET result_status = 'transferred', left_at = ?, updated_at = ? WHERE student_id = ? AND class_id = ? AND left_at IS NULL`).bind(now, now, studentId, studentExists?.class_id).run();
+        await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, status = 'active', updated_at = ? WHERE id = ?`).bind(registration, studentName, birthDate, guardianName, guardianPhone, classId, now, studentId).run();
       }
-      await db.prepare(`UPDATE enrollments SET student_id = ? WHERE id = ?`).bind(studentId, enrollmentId).run();
+      await db.prepare(`UPDATE enrollments SET student_id = ?, school_year = ? WHERE id = ?`).bind(studentId, schoolYear, enrollmentId).run();
+      if (classId) await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`).bind(studentId, classId, schoolYear, klass.grade_level, klass.name, now, auth.user.id, now, now).run();
     }
     await audit(db, auth.user.id, completing ? "enrollment_completed" : (id ? "enrollment_updated" : "enrollment_draft"), enrollmentId, `${registration} • ${studentName}`);
     return json({ ok: true, id: enrollmentId, status }, id ? 200 : 201);
@@ -713,8 +736,8 @@ async function handleApi(request, env, path) {
     const requestedClassId = Number(new URL(request.url).searchParams.get("class_id") || 0); const classId = auth.user.role === "Professor" ? Number(auth.user.assignment?.class_id || 0) : requestedClassId;
     if (auth.user.role === "Professor" && !classId) return json({ students: [] });
     const statement = classId
-      ? db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.class_id = ? ORDER BY s.name`).bind(classId)
-      : db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift FROM students s LEFT JOIN classes c ON c.id = s.class_id ORDER BY s.name`);
+      ? db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift, c.school_year FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.class_id = ? ORDER BY c.school_year DESC, s.name`).bind(classId)
+      : db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift, c.school_year FROM students s LEFT JOIN classes c ON c.id = s.class_id ORDER BY c.school_year DESC, s.name`);
     const result = await statement.all(); return json({ students: result.results });
   }
 
@@ -723,6 +746,8 @@ async function handleApi(request, env, path) {
     const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const birthDate = String(body.birthDate || "").trim(); const guardianName = String(body.guardianName || "").trim(); const guardianPhone = String(body.guardianPhone || "").trim(); const classId = Number(body.classId); const now = Date.now();
     if (registration.length < 2 || name.length < 3 || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
     const klass = await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first(); if (!klass) return json({ error: "Selecione uma turma ativa." }, 400);
+    const sameStudent = birthDate ? await db.prepare(`SELECT id, registration FROM students WHERE lower(trim(name)) = lower(trim(?)) AND birth_date = ? LIMIT 1`).bind(name, birthDate).first() : null;
+    if (sameStudent) return json({ error: `Este aluno já está cadastrado com a matrícula ${sameStudent.registration}. Edite o cadastro existente ou faça a nova matrícula por ele.` }, 409);
     try {
       const result = await db.prepare(`INSERT INTO students (registration, name, birth_date, guardian_name, guardian_phone, class_id, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`)
         .bind(registration, name, birthDate || null, guardianName || null, guardianPhone || null, classId, auth.user.id, now, now).run();
@@ -746,6 +771,8 @@ async function handleApi(request, env, path) {
     ]);
     if (!existing) return json({ error: "Aluno não encontrado." }, 404);
     if (!targetClass) return json({ error: "Selecione uma turma ativa." }, 400);
+    const duplicateIdentity = String(body.birthDate || "").trim() ? await db.prepare(`SELECT id FROM students WHERE id != ? AND lower(trim(name)) = lower(trim(?)) AND birth_date = ? LIMIT 1`).bind(id, name, String(body.birthDate || "").trim()).first() : null;
+    if (duplicateIdentity) return json({ error: "Já existe outro cadastro com este nome e data de nascimento." }, 409);
     try {
       const result = await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, status = ?, updated_at = ? WHERE id = ?`)
         .bind(registration, name, String(body.birthDate || "").trim() || null, String(body.guardianName || "").trim() || null, String(body.guardianPhone || "").trim() || null, classId, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
@@ -756,6 +783,7 @@ async function handleApi(request, env, path) {
         await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
           .bind(id, classId, targetClass.school_year, targetClass.grade_level, targetClass.name, now, auth.user.id, now, now).run();
       }
+      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, updated_by = ?, updated_at = ? WHERE student_id = ?`).bind(registration, name, String(body.birthDate || "").trim(), String(body.guardianName || "").trim(), String(body.guardianPhone || "").trim(), auth.user.id, Date.now(), id).run();
       await audit(db, auth.user.id, "student_updated", id, `${registration} • ${name}`); return json({ ok: true });
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Essa matrícula já está cadastrada." }, 409);
@@ -808,12 +836,13 @@ async function handleApi(request, env, path) {
   if (path === "/api/agendas" && request.method === "POST") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const content = String(body.content || "").trim(); const status = String(body.status || "Pendente"); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
+    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não teve agenda" : String(body.agenda || body.content || "").trim(); const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || (!noAgenda && content.length < 3)) return json({ error: "Preencha data, turma, disciplina e AGENDA, ou marque ‘Não teve agenda’." }, 400);
     const scopeError = teacherScopeViolation(auth.user, classId, subjectId, "agenda"); if (scopeError) return json({ error: scopeError }, 403);
     const context = await agendaContext(db, classId, subjectId); if (!context) return json({ error: "A disciplina escolhida não pertence à etapa desta turma." }, 400);
-    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, String(body.activity || "").trim() || null, String(body.homework || "").trim() || null, JSON.stringify(materials), status, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
+    const duplicate = await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id = ? LIMIT 1`).bind(date, classId, subjectId).first(); if (duplicate) return json({ error: "Já existe uma agenda para esta turma, disciplina e data. Edite o registro existente." }, 409);
+    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, no_agenda, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'Concluída', ?, ?, ?, ?, ?)`)
+      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
     await audit(db, auth.user.id, "agenda_created", result.meta.last_row_id, content); return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
 
@@ -821,12 +850,13 @@ async function handleApi(request, env, path) {
   if (agendaMatch && request.method === "PUT") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const content = String(body.content || "").trim(); const materials = Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || content.length < 3) return json({ error: "Preencha data, turma, disciplina e conteúdo." }, 400);
+    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId); const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não teve agenda" : String(body.agenda || body.content || "").trim(); const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || !Number.isInteger(subjectId) || (!noAgenda && content.length < 3)) return json({ error: "Preencha data, turma, disciplina e AGENDA, ou marque ‘Não teve agenda’." }, 400);
     const scopeError = teacherScopeViolation(auth.user, classId, subjectId, "agenda"); if (scopeError) return json({ error: scopeError }, 403);
     const context = await agendaContext(db, classId, subjectId); if (!context) return json({ error: "A disciplina escolhida não pertence à etapa desta turma." }, 400);
-    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = ?, homework = ?, materials = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`)
-      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, String(body.activity || "").trim() || null, String(body.homework || "").trim() || null, JSON.stringify(materials), String(body.status || "Pendente"), String(body.notes || "").trim() || null, Date.now(), id).run();
+    const duplicate = await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id = ? AND id != ? LIMIT 1`).bind(date, classId, subjectId, id).first(); if (duplicate) return json({ error: "Já existe outra agenda para esta turma, disciplina e data." }, 409);
+    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = NULL, homework = NULL, materials = ?, status = 'Concluída', no_agenda = ?, notes = ?, updated_at = ? WHERE id = ?`)
+      .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, Date.now(), id).run();
     if (!result.meta.changes) return json({ error: "Agenda não encontrada." }, 404);
     await audit(db, auth.user.id, "agenda_updated", id, content); return json({ ok: true });
   }
