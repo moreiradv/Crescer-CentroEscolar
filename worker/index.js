@@ -13,8 +13,8 @@ const ALLOWED_EXTERNAL_ORIGINS = new Set([
   "https://crescer-escola-web.vercel.app",
 ]);
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador", "Professor"]);
-const MANAGER_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
-const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Financeiro", "Professor"]);
+const MANAGER_ROLES = new Set(["Administrador", "Coordenação"]);
+const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Professor"]);
 const ENROLLMENT_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
 const ALLOWED_ATTENDANCE = new Set(["present", "late", "justified", "absent"]);
 const ALLOWED_SHIFTS = new Set(["Matutino", "Vespertino", "Integral", "Noturno"]);
@@ -179,7 +179,15 @@ async function requireManager(request, db) {
   const user = await getSession(request, db);
   if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
   const passwordBlock = passwordChangeRequired(user); if (passwordBlock) return passwordBlock;
-  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas administração, coordenação e financeiro podem realizar esta ação." }, 403) };
+  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas Administração e Coordenação podem realizar esta ação." }, 403) };
+  return { user };
+}
+
+async function requireAdmin(request, db) {
+  const user = await getSession(request, db);
+  if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
+  const passwordBlock = passwordChangeRequired(user); if (passwordBlock) return passwordBlock;
+  if (user.role !== "Administrador") return { error: json({ error: "Esta função é exclusiva da Administração." }, 403) };
   return { user };
 }
 
@@ -264,6 +272,7 @@ async function handleLibraryApi(request, env, path) {
   if (!path.startsWith("/api/library-books")) return null;
   const db = env.DB;
   const coverMatch = path.match(/^\/api\/library-books\/(\d+)\/cover$/);
+  if (coverMatch) return json({ error: "A Biblioteca utiliza somente registros textuais e não aceita imagens de capa." }, 410);
 
   if (coverMatch && request.method === "GET") {
     const book = await db.prepare(`SELECT cover_key, cover_mime FROM library_books WHERE id = ?`).bind(Number(coverMatch[1])).first();
@@ -289,7 +298,7 @@ async function handleLibraryApi(request, env, path) {
 
   if (path === "/api/library-books" && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
-    if (auth.user.role === "Professor") return json({ error: "A Biblioteca não faz parte das permissões desta conta de professor." }, 403);
+    if (!MANAGER_ROLES.has(auth.user.role)) return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
     const search = String(new URL(request.url).searchParams.get("search") || "").trim();
     const result = search
       ? await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.title LIKE ? OR COALESCE(b.author, '') LIKE ? ORDER BY b.title LIMIT 500`).bind(`%${search}%`, `%${search}%`).all()
@@ -300,7 +309,7 @@ async function handleLibraryApi(request, env, path) {
   const bookMatch = path.match(/^\/api\/library-books\/(\d+)$/);
   if (bookMatch && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
-    if (auth.user.role === "Professor") return json({ error: "A Biblioteca não faz parte das permissões desta conta de professor." }, 403);
+    if (!MANAGER_ROLES.has(auth.user.role)) return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
     const book = await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.id = ?`).bind(Number(bookMatch[1])).first();
     return book ? json({ book }) : json({ error: "Livro não encontrado." }, 404);
   }
@@ -645,7 +654,7 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/summary" && request.method === "GET") {
-    const auth = await requireUser(request, db); if (auth.error) return auth.error;
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Araguaina" }).format(new Date());
     if (auth.user.role === "Professor") {
       const assignment = auth.user.assignment; if (!assignment) return json({ classes: 0, students: 0, agendas: 0, teachers: 1, attendance: { present: 0, late: 0, justified: 0, absent: 0 }, attendanceTotal: 0, attendancePercent: 0, pendingClasses: 1, trend: [] });
@@ -686,7 +695,7 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/classes" && request.method === "GET") {
-    const auth = await requireUser(request, db); if (auth.error) return auth.error;
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const result = auth.user.role === "Professor"
       ? await db.prepare(`SELECT c.*, COUNT(s.id) AS student_count FROM classes c LEFT JOIN students s ON s.class_id = c.id AND s.status = 'active' WHERE c.id = ? GROUP BY c.id`).bind(auth.user.assignment?.class_id || 0).all()
       : await db.prepare(`SELECT c.*, COUNT(s.id) AS student_count FROM classes c LEFT JOIN students s ON s.class_id = c.id AND s.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).all();
@@ -732,7 +741,7 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/students" && request.method === "GET") {
-    const auth = await requireUser(request, db); if (auth.error) return auth.error;
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const requestedClassId = Number(new URL(request.url).searchParams.get("class_id") || 0); const classId = auth.user.role === "Professor" ? Number(auth.user.assignment?.class_id || 0) : requestedClassId;
     if (auth.user.role === "Professor" && !classId) return json({ students: [] });
     const statement = classId
@@ -914,13 +923,13 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/audit" && request.method === "GET") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const result = await db.prepare(`SELECT a.id, a.action, a.details, a.created_at, u.name AS actor_name, u.initials AS actor_initials FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.created_at DESC LIMIT 300`).all();
     return json({ entries: result.results });
   }
 
   if (path === "/api/system/reset" && request.method === "POST") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     await db.batch([
       db.prepare(`DELETE FROM attendance_records`),
       db.prepare(`DELETE FROM agenda_entries`),
@@ -932,13 +941,13 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/users" && request.method === "GET") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const result = await db.prepare(`SELECT u.id, u.username, u.name, u.role, u.initials, u.status, u.must_change_password, u.created_at, u.updated_at, ta.education_stage, ta.class_id, ta.subject_id, ta.school_year, ta.can_attendance, ta.can_agenda, c.name AS class_name, s.name AS subject_name FROM users u LEFT JOIN teacher_assignments ta ON ta.user_id = u.id LEFT JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY CASE u.role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, u.name`).all();
     return json({ users: result.results });
   }
 
   if (path === "/api/users" && request.method === "POST") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const body = await readJson(request);
     const name = String(body.name || "").trim();
     const username = String(body.username || "").trim();
@@ -962,7 +971,7 @@ async function handleApi(request, env, path) {
 
   const userMatch = path.match(/^\/api\/users\/(\d+)$/);
   if (userMatch && request.method === "PUT") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const targetId = Number(userMatch[1]); const existing = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetId).first();
     if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     const body = await readJson(request); const name = String(body.name || "").trim(); const username = String(body.username || "").trim(); const role = String(body.role || ""); const status = body.status === "inactive" ? "inactive" : "active";
@@ -995,7 +1004,7 @@ async function handleApi(request, env, path) {
 
   const resetPasswordMatch = path.match(/^\/api\/users\/(\d+)\/reset-password$/);
   if (resetPasswordMatch && request.method === "POST") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const targetId = Number(resetPasswordMatch[1]); const existing = await db.prepare(`SELECT username, name FROM users WHERE id = ?`).bind(targetId).first(); if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     const password = temporaryPassword(); const salt = randomHex(16); const passwordHash = await hashPassword(password, salt); const now = Date.now();
     await db.batch([
@@ -1006,7 +1015,7 @@ async function handleApi(request, env, path) {
   }
 
   if (userMatch && request.method === "DELETE") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const targetId = Number(userMatch[1]); if (targetId === auth.user.id) return json({ error: "Você não pode remover o usuário que está usando agora." }, 400);
     const existing = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetId).first(); if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     if (existing.role === "Administrador" && existing.status === "active") {
