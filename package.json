@@ -5,6 +5,6 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
-    "test:progressions": "node scripts/test-progressions.mjs"
+    "test:integration": "node scripts/test-progressions.mjs"
   }
 }

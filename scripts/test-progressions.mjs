@@ -64,4 +64,15 @@ assert.equal(database.prepare(`SELECT result_status FROM student_class_history W
 assert.equal(database.prepare(`SELECT COUNT(*) total FROM student_class_history WHERE student_id=2`).get().total, 2);
 const after = await api("/api/progressions");
 assert.equal(after.candidates.some(candidate => candidate.id === 1 && candidate.targetYear === 2027), false);
-console.log("Progression integration test passed: unique students, annual folders, preserved 2026 records, prepared 2027 enrollment and retention exception.");
+const generalAgenda = await api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-01", classId: 1, subjectId: null, noAgenda: false, agenda: "", materials: [] }) });
+assert.equal(generalAgenda.agenda.subject_id, null);
+assert.equal(generalAgenda.agenda.content, "Agenda registrada");
+const noAgenda = await api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-01", classId: 2, subjectId: null, noAgenda: true, agenda: "", materials: [] }) });
+assert.equal(noAgenda.agenda.no_agenda, 1);
+assert.equal(noAgenda.agenda.content, "Não tem agenda");
+await assert.rejects(() => api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-01", classId: 2, subjectId: null, noAgenda: false, agenda: "Conteúdo conflitante", materials: [] }) }), /marcadas como ‘Não tem agenda’/);
+const dailyStatus = await api("/api/agenda-status?date=2026-11-01");
+assert.equal(dailyStatus.statuses.find(item => item.id === 1).status, "with_agenda");
+assert.equal(dailyStatus.statuses.find(item => item.id === 2).status, "no_agenda");
+assert.equal(dailyStatus.statuses.find(item => item.id === 3).status, "no_record");
+console.log("Integration tests passed: annual progression, preserved history, retention exception, optional agenda fields and three daily agenda states.");
