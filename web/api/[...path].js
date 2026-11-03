@@ -159,7 +159,7 @@ function decorateAgenda(row, context) {
 
 async function allAgendas(req, context) {
   const [oldResponse, localResult] = await Promise.all([
-    upstream(req, '/api/agendas', { method: 'GET' }),
+    upstream(req, '/api/agendas', { method: 'GET', copyQuery: false }),
     ensureSchema().then(db => db.query('SELECT * FROM crescer_agendas ORDER BY agenda_date DESC, id DESC')),
   ]);
   if (oldResponse.status === 401 || oldResponse.status === 403) throw Object.assign(new Error(oldResponse.data.error || 'Acesso negado.'), { status: oldResponse.status });

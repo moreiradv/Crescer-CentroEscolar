@@ -50,7 +50,7 @@ $('#libraryBookForm').onsubmit = async event => {
   const id = Number($('#libraryBookId').value) || 0;
   const payload = { title: $('#libraryTitle').value, author: $('#libraryAuthor').value, synopsis: $('#librarySynopsis').value, publisher: $('#libraryPublisher').value, ageRange: $('#libraryAgeRange').value, quantity: $('#libraryQuantity').value };
   try {
-    const button=$('#saveLibraryBookBtn');button.disabled=true;button.textContent='Salvando...';const saved=await api(id ? `/api/library-books/${id}` : '/api/library-books', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });if(!saved?.ok||(!id&&!saved?.id))throw new Error('O servidor não confirmou o salvamento do livro.');
+    const button=$('#saveLibraryBookBtn');button.disabled=true;button.textContent='Salvando...';const saved=await api(id ? `/api/library-books?id=${id}` : '/api/library-books', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });if(!saved?.ok||(!id&&!saved?.id))throw new Error('O servidor não confirmou o salvamento do livro.');
     $('#libraryBookModal').close(); await loadLibraryBooks(); toast(id ? 'Livro atualizado' : 'Livro cadastrado', 'O banco de dados confirmou o salvamento.');
   } catch (error) { box.textContent = error.message; box.classList.remove('hidden'); }
   finally { const button=$('#saveLibraryBookBtn');button.disabled=false;button.textContent='Salvar Livro'; }
@@ -58,7 +58,7 @@ $('#libraryBookForm').onsubmit = async event => {
 
 $('#deleteLibraryBookBtn').onclick = async () => {
   const id = Number($('#libraryBookId').value); if (!id || !confirm('Excluir este livro permanentemente?')) return;
-  try { await api(`/api/library-books/${id}`, { method: 'DELETE' }); $('#libraryBookModal').close(); await loadLibraryBooks(); toast('Livro excluído', 'O registro foi removido do acervo.'); }
+  try { await api(`/api/library-books?id=${id}`, { method: 'DELETE' }); $('#libraryBookModal').close(); await loadLibraryBooks(); toast('Livro excluído', 'O registro foi removido do acervo.'); }
   catch (error) { $('#libraryFormError').textContent = error.message; $('#libraryFormError').classList.remove('hidden'); }
 };
 
