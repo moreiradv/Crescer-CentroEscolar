@@ -1,5 +1,5 @@
 let currentUser=null,managedUsers=[],classes=[],students=[],agendas=[],attendance=[],indicators=null,auditEntries=[],academicSubjects=[],issuedCredentials=[],attendanceDirty=false;
-const API_ORIGIN=location.hostname.endsWith('chatgpt.site')?'':'https://crescer-gestao-escolar.davi-gonzaga1.chatgpt.site';
+const API_ORIGIN='';
 let authToken=localStorage.getItem('crescerSessionToken')||'';
 let activeTeacherAssignmentId=Number(localStorage.getItem('crescerTeacherAssignment')||0);
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
