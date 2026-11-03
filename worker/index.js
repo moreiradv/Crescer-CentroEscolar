@@ -856,7 +856,10 @@ async function handleApi(request, env, path) {
     const duplicate = await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id = ? LIMIT 1`).bind(date, classId, subjectId).first(); if (duplicate) return json({ error: "Já existe uma agenda para esta turma, disciplina e data. Edite o registro existente." }, 409);
     const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, no_agenda, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'Concluída', ?, ?, ?, ?, ?)`)
       .bind(date, classId, context.subject.name, subjectId, String(body.subjectComponent || "").trim() || null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
-    await audit(db, auth.user.id, "agenda_created", result.meta.last_row_id, content); return json({ ok: true, id: result.meta.last_row_id }, 201);
+    const savedId = Number(result.meta.last_row_id); if (!savedId || Number(result.meta.changes || 0) !== 1) return json({ error: "O banco não confirmou o salvamento da agenda." }, 500);
+    const saved = await db.prepare(`SELECT a.*, c.name AS class_name, u.name AS created_by_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by WHERE a.id = ?`).bind(savedId).first();
+    if (!saved) return json({ error: "A agenda não pôde ser recuperada após o salvamento." }, 500);
+    await audit(db, auth.user.id, "agenda_created", savedId, content); return json({ ok: true, id: savedId, agenda: { ...saved, materials: JSON.parse(saved.materials || "[]") } }, 201);
   }
 
   const agendaMatch = path.match(/^\/api\/agendas\/(\d+)$/);
