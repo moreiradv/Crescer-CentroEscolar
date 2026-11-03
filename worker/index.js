@@ -320,21 +320,23 @@ async function handleLibraryApi(request, env, path) {
 
   if ((path === "/api/library-books" && request.method === "POST") || (bookMatch && request.method === "PUT")) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
-    const body = await readJson(request); const id = bookMatch ? Number(bookMatch[1]) : 0; const title = String(body.title || "").trim().slice(0, 240); const author = nullableText(body.author, 240); const publicationYear = body.publicationYear === "" || body.publicationYear == null ? null : Number(body.publicationYear); const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity); const now = Date.now();
+    const body = await readJson(request); const id = bookMatch ? Number(bookMatch[1]) : 0; const title = String(body.title || "").trim().slice(0, 240); const author = nullableText(body.author, 240); const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity); const now = Date.now();
     if (title.length < 2) return json({ error: "Informe o nome do livro." }, 400);
-    if (publicationYear !== null && (!Number.isInteger(publicationYear) || publicationYear < 1000 || publicationYear > 2200)) return json({ error: "Informe um ano de publicação válido." }, 400);
     if (quantity !== null && (!Number.isInteger(quantity) || quantity < 0 || quantity > 100000)) return json({ error: "Informe uma quantidade de exemplares válida." }, 400);
     const duplicate = await db.prepare(`SELECT id FROM library_books WHERE title_key = ? AND author_key = ? AND id != ? LIMIT 1`).bind(libraryKey(title), libraryKey(author), id).first();
     if (duplicate) return json({ error: "Já existe um livro com o mesmo nome e autor no acervo." }, 409);
-    const values = [title, libraryKey(title), author, libraryKey(author), nullableText(body.synopsis, 12000), nullableText(body.publisher, 240), publicationYear, nullableText(body.ageRange, 120), quantity, nullableText(body.notes, 5000)];
+    const values = [title, libraryKey(title), author, libraryKey(author), nullableText(body.synopsis, 12000), nullableText(body.publisher, 240), null, nullableText(body.ageRange, 120), quantity, null];
     if (id) {
       const result = await db.prepare(`UPDATE library_books SET title = ?, title_key = ?, author = ?, author_key = ?, synopsis = ?, publisher = ?, publication_year = ?, age_range = ?, quantity = ?, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?`).bind(...values, auth.user.id, now, id).run();
       if (!result.meta.changes) return json({ error: "Livro não encontrado." }, 404);
-      await audit(db, auth.user.id, "library_book_updated", id, title); return json({ ok: true, id });
+      const saved = await db.prepare(`SELECT * FROM library_books WHERE id = ?`).bind(id).first(); if (!saved) return json({ error: "O banco não confirmou a atualização do livro." }, 500);
+      await audit(db, auth.user.id, "library_book_updated", id, title); return json({ ok: true, id, book: saved });
     }
     const year = new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "America/Araguaina" }).format(new Date()); const code = `BIB-${year}-${randomHex(4).toUpperCase()}`;
     const result = await db.prepare(`INSERT INTO library_books (accession_code, title, title_key, author, author_key, synopsis, publisher, publication_year, age_range, quantity, notes, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(code, ...values, auth.user.id, auth.user.id, now, now).run();
-    await audit(db, auth.user.id, "library_book_created", result.meta.last_row_id, title); return json({ ok: true, id: result.meta.last_row_id, accessionCode: code }, 201);
+    const savedId = Number(result.meta.last_row_id); if (!savedId || Number(result.meta.changes || 0) !== 1) return json({ error: "O banco não confirmou o salvamento do livro." }, 500);
+    const saved = await db.prepare(`SELECT * FROM library_books WHERE id = ?`).bind(savedId).first(); if (!saved) return json({ error: "O livro não pôde ser recuperado após o salvamento." }, 500);
+    await audit(db, auth.user.id, "library_book_created", savedId, title); return json({ ok: true, id: savedId, accessionCode: code, book: saved }, 201);
   }
 
   if (bookMatch && request.method === "DELETE") {

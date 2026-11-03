@@ -168,7 +168,7 @@
         <section class="page-head"><div><p class="eyebrow">Acervo escolar</p><h1>Biblioteca</h1><p>Cadastre, organize e consulte as obras do Crescer Centro Educacional.</p></div><button class="primary-btn" id="newLibraryBookBtn" data-manager-only>＋ Cadastrar livro</button></section>
         <section class="library-hero panel"><div><span class="library-hero-icon">▥</span><div><strong id="libraryBookCount">0</strong><p>livros catalogados no acervo</p></div></div><label>Pesquisar por nome ou autor<span class="search-field"><b>⌕</b><input id="librarySearch" placeholder="Digite para pesquisar..." /></span></label></section>
         <section><div class="library-section-head"><div><h2>Acervo digital</h2><p>Lista textual das obras, sem fotografias ou imagens de capa.</p></div></div><div class="library-grid" id="libraryGrid"><article class="panel empty-state">Nenhum livro cadastrado.</article></div></section>
-        <section class="panel data-panel library-list-panel"><div class="table-head"><div><h2>Lista de Livros</h2><p><span id="libraryListCount">0</span> registros encontrados</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Identificador</th><th>Livro</th><th>Autor(a)</th><th>Editora</th><th>Ano</th><th>Exemplares</th><th>Ações</th></tr></thead><tbody id="libraryTable"></tbody></table></div></section>
+        <section class="panel data-panel library-list-panel"><div class="table-head"><div><h2>Lista de Livros</h2><p><span id="libraryListCount">0</span> registros encontrados</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Identificador</th><th>Livro</th><th>Autor(a)</th><th>Editora</th><th>Faixa etária</th><th>Exemplares</th><th>Ações</th></tr></thead><tbody id="libraryTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-matriculas">
@@ -262,7 +262,7 @@
 
   <dialog class="modal library-modal" id="libraryBookModal">
     <form method="dialog" id="libraryBookForm"><div class="modal-head"><div><span class="soft-label" id="libraryModalLabel">Novo cadastro</span><h2 id="libraryModalTitle">Cadastrar Livro</h2><p>Preencha o que estiver disponível; os demais dados podem ser incluídos depois.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><input type="hidden" id="libraryBookId" />
-      <div class="form-grid"><label class="full">Nome do livro *<input id="libraryTitle" maxlength="240" required /></label><label>Autor(a)<input id="libraryAuthor" maxlength="240" /></label><label>Editora<input id="libraryPublisher" maxlength="240" /></label><label>Ano de publicação<input id="libraryYear" type="number" min="1000" max="2200" /></label><label>Faixa etária indicada<input id="libraryAgeRange" placeholder="Ex.: 8 a 10 anos" /></label><label>Quantidade de exemplares<input id="libraryQuantity" type="number" min="0" /></label><label class="full">Sinopse<textarea id="librarySynopsis" rows="5"></textarea></label><label class="full">Observações<textarea id="libraryNotes" rows="3"></textarea></label></div><p class="login-error hidden" id="libraryFormError"></p><div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteLibraryBookBtn">Excluir</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar Livro</button></div>
+      <div class="form-grid"><label class="full">Nome do livro *<input id="libraryTitle" maxlength="240" required /></label><label>Autor(a)<input id="libraryAuthor" maxlength="240" /></label><label>Editora<input id="libraryPublisher" maxlength="240" /></label><label>Faixa etária indicada<input id="libraryAgeRange" placeholder="Ex.: 8 a 10 anos" /></label><label>Quantidade de exemplares<input id="libraryQuantity" type="number" min="0" /></label><label class="full">Sinopse<textarea id="librarySynopsis" rows="5"></textarea></label></div><p class="login-error hidden" id="libraryFormError"></p><div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteLibraryBookBtn">Excluir</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default" id="saveLibraryBookBtn">Salvar Livro</button></div>
     </form>
   </dialog>
 
@@ -307,6 +307,6 @@
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
   <script src="./app.js?v=20261103-agenda-save"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
-  <script src="./library.js?v=20261029-main-prompt"></script>
+  <script src="./library.js?v=20261103-library-routes"></script>
 </body>
 </html>

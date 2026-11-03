@@ -12,8 +12,8 @@ function renderLibraryBooks() {
   $('#libraryBookCount').textContent = libraryBooks.length;
   $('#libraryNavCount').textContent = libraryBooks.length;
   $('#libraryListCount').textContent = books.length;
-  $('#libraryGrid').innerHTML = books.length ? books.map(book => `<article class="library-book-card text-only" data-library-detail="${book.id}" tabindex="0" role="button" aria-label="Ver detalhes de ${esc(book.title)}"><div class="library-text-icon">▥</div><div class="library-card-copy"><span>${esc(book.accession_code)}</span><h3>${esc(book.title)}</h3><p>${esc(book.author || 'Autor não informado')}</p><small>${esc(book.publisher || 'Editora não informada')}${book.publication_year ? ` • ${book.publication_year}` : ''}</small></div></article>`).join('') : '<article class="panel empty-state library-empty">Nenhum livro encontrado. A Biblioteca será preenchida pela própria escola.</article>';
-  $('#libraryTable').innerHTML = books.length ? books.map(book => `<tr><td><strong>${esc(book.accession_code)}</strong></td><td>${esc(book.title)}</td><td>${esc(book.author || '—')}</td><td>${esc(book.publisher || '—')}</td><td>${book.publication_year || '—'}</td><td>${book.quantity ?? '—'}</td><td><button class="table-action" data-library-detail="${book.id}">Detalhes</button>${manager() ? ` <button class="table-action" data-library-edit="${book.id}">Editar</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-cell">Nenhum livro cadastrado ou encontrado nesta pesquisa.</td></tr>';
+  $('#libraryGrid').innerHTML = books.length ? books.map(book => `<article class="library-book-card text-only" data-library-detail="${book.id}" tabindex="0" role="button" aria-label="Ver detalhes de ${esc(book.title)}"><div class="library-text-icon">▥</div><div class="library-card-copy"><span>${esc(book.accession_code)}</span><h3>${esc(book.title)}</h3><p>${esc(book.author || 'Autor não informado')}</p><small>${esc(book.publisher || 'Editora não informada')}</small></div></article>`).join('') : '<article class="panel empty-state library-empty">Nenhum livro encontrado. A Biblioteca será preenchida pela própria escola.</article>';
+  $('#libraryTable').innerHTML = books.length ? books.map(book => `<tr><td><strong>${esc(book.accession_code)}</strong></td><td>${esc(book.title)}</td><td>${esc(book.author || '—')}</td><td>${esc(book.publisher || '—')}</td><td>${esc(book.age_range || '—')}</td><td>${book.quantity ?? '—'}</td><td><button class="table-action" data-library-detail="${book.id}">Detalhes</button>${manager() ? ` <button class="table-action" data-library-edit="${book.id}">Editar</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-cell">Nenhum livro cadastrado ou encontrado nesta pesquisa.</td></tr>';
 }
 
 async function loadLibraryBooks(silent = false) {
@@ -24,13 +24,13 @@ async function loadLibraryBooks(silent = false) {
 function openLibraryBook(book = null) {
   if (!manager()) return toast('Acesso restrito', 'Seu perfil pode consultar a Biblioteca, mas não alterar o acervo.');
   currentLibraryBook = book; $('#libraryBookForm').reset(); $('#libraryBookId').value = book?.id || '';
-  $('#libraryTitle').value = book?.title || ''; $('#libraryAuthor').value = book?.author || ''; $('#libraryPublisher').value = book?.publisher || ''; $('#libraryYear').value = book?.publication_year || ''; $('#libraryAgeRange').value = book?.age_range || ''; $('#libraryQuantity').value = book?.quantity ?? ''; $('#librarySynopsis').value = book?.synopsis || ''; $('#libraryNotes').value = book?.notes || '';
+  $('#libraryTitle').value = book?.title || ''; $('#libraryAuthor').value = book?.author || ''; $('#libraryPublisher').value = book?.publisher || ''; $('#libraryAgeRange').value = book?.age_range || ''; $('#libraryQuantity').value = book?.quantity ?? ''; $('#librarySynopsis').value = book?.synopsis || '';
   $('#libraryModalLabel').textContent = book ? book.accession_code : 'Novo cadastro'; $('#libraryModalTitle').textContent = book ? 'Editar Livro' : 'Cadastrar Livro'; $('#deleteLibraryBookBtn').classList.toggle('hidden', !book); $('#libraryFormError').classList.add('hidden'); $('#libraryBookModal').showModal();
 }
 
 function showLibraryDetails(book) {
   currentLibraryBook = book; $('#libraryDetailCode').textContent = book.accession_code; $('#libraryDetailTitle').textContent = book.title; $('#libraryDetailAuthor').textContent = book.author || 'Autor não informado';
-  $('#libraryDetailContent').innerHTML = `<div class="library-detail-info full"><section><h3>Sinopse</h3><p>${esc(book.synopsis || 'Sinopse não cadastrada.')}</p></section><dl><div><dt>Editora</dt><dd>${esc(libraryValue(book.publisher))}</dd></div><div><dt>Ano de publicação</dt><dd>${esc(libraryValue(book.publication_year))}</dd></div><div><dt>Faixa etária</dt><dd>${esc(libraryValue(book.age_range))}</dd></div><div><dt>Exemplares</dt><dd>${esc(libraryValue(book.quantity))}</dd></div></dl><section><h3>Observações</h3><p>${esc(book.notes || 'Nenhuma observação cadastrada.')}</p></section></div>`;
+  $('#libraryDetailContent').innerHTML = `<div class="library-detail-info full"><section><h3>Sinopse</h3><p>${esc(book.synopsis || 'Sinopse não cadastrada.')}</p></section><dl><div><dt>Editora</dt><dd>${esc(libraryValue(book.publisher))}</dd></div><div><dt>Faixa etária</dt><dd>${esc(libraryValue(book.age_range))}</dd></div><div><dt>Exemplares</dt><dd>${esc(libraryValue(book.quantity))}</dd></div></dl></div>`;
   $('#editLibraryFromDetail').classList.toggle('hidden', !manager()); $('#libraryDetailModal').showModal();
 }
 
@@ -48,11 +48,12 @@ $('#libraryGrid').onkeydown = event => { if ((event.key === 'Enter' || event.key
 $('#libraryBookForm').onsubmit = async event => {
   event.preventDefault(); const form = event.currentTarget; if (!form.reportValidity()) return; const box = $('#libraryFormError'); box.classList.add('hidden');
   const id = Number($('#libraryBookId').value) || 0;
-  const payload = { title: $('#libraryTitle').value, author: $('#libraryAuthor').value, synopsis: $('#librarySynopsis').value, publisher: $('#libraryPublisher').value, publicationYear: $('#libraryYear').value, ageRange: $('#libraryAgeRange').value, quantity: $('#libraryQuantity').value, notes: $('#libraryNotes').value };
+  const payload = { title: $('#libraryTitle').value, author: $('#libraryAuthor').value, synopsis: $('#librarySynopsis').value, publisher: $('#libraryPublisher').value, ageRange: $('#libraryAgeRange').value, quantity: $('#libraryQuantity').value };
   try {
-    await api(id ? `/api/library-books/${id}` : '/api/library-books', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
-    $('#libraryBookModal').close(); await loadLibraryBooks(); toast(id ? 'Livro atualizado' : 'Livro cadastrado', 'O registro textual foi salvo no acervo.');
+    const button=$('#saveLibraryBookBtn');button.disabled=true;button.textContent='Salvando...';const saved=await api(id ? `/api/library-books/${id}` : '/api/library-books', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });if(!saved?.ok||(!id&&!saved?.id))throw new Error('O servidor não confirmou o salvamento do livro.');
+    $('#libraryBookModal').close(); await loadLibraryBooks(); toast(id ? 'Livro atualizado' : 'Livro cadastrado', 'O banco de dados confirmou o salvamento.');
   } catch (error) { box.textContent = error.message; box.classList.remove('hidden'); }
+  finally { const button=$('#saveLibraryBookBtn');button.disabled=false;button.textContent='Salvar Livro'; }
 };
 
 $('#deleteLibraryBookBtn').onclick = async () => {
