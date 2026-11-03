@@ -11,6 +11,7 @@ worker = worker
   .replace("__ENROLLMENTS_JS__", () => JSON.stringify(read("web/enrollments.js").toString("utf8")))
   .replace("__LIBRARY_JS__", () => JSON.stringify(read("web/library.js").toString("utf8")))
   .replace("__REPORTS_JS__", () => JSON.stringify(read("web/reports.js").toString("utf8")))
+  .replace("__PROGRESSIONS_JS__", () => JSON.stringify(read("web/progressions.js").toString("utf8")))
   .replace("__LOGO_BASE64__", () => JSON.stringify(read("web/assets/logo-crescer.png").toString("base64")));
 
 const dist = path.join(root, "dist");

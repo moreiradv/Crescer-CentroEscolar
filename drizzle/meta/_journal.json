@@ -64,6 +64,13 @@
       "when": 1793664000000,
       "tag": "0008_multiple_teacher_assignments",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0009_add_progression_rules",
+      "breakpoints": true
     }
   ]
 }

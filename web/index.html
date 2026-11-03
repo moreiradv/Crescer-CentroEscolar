@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261103-reports" />
+  <link rel="stylesheet" href="./styles.css?v=20261103-progressions" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -154,6 +154,7 @@
       <div class="page" id="page-turmas">
         <section class="page-head"><div><p class="eyebrow">Estrutura acadêmica</p><h1>Turmas e alunos</h1><p>Crie turmas e vincule os alunos que aparecerão na frequência.</p></div><div class="head-actions"><button class="secondary-btn" id="newStudentBtn">＋ Novo aluno</button><button class="primary-btn" id="newClassBtn">＋ Nova turma</button></div></section>
         <section class="class-grid" id="classCards"><article class="panel empty-state">Nenhuma turma cadastrada.</article></section>
+        <section class="panel progression-panel hidden" id="progressionPanel" data-admin-only><div class="table-head"><div><h2>Progressões preparadas</h2><p>Alunos prontos para o próximo ano, sem duplicar o cadastro principal.</p></div><button class="secondary-btn" id="openProgressionRules">⚙ Regras de progressão</button></div><div class="progression-list" id="progressionList"><p class="empty-state">Carregando progressões...</p></div></section>
         <section class="panel data-panel"><div class="table-head"><div><h2>Alunos por ano letivo</h2><p><span id="studentCount">0</span> cadastros únicos no banco</p></div><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div><div class="table-wrap"><table><thead><tr><th>Ano</th><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th><th>Ações</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
       </div>
 
@@ -219,6 +220,8 @@
   <dialog class="modal" id="promotionModal"><form method="dialog" id="promotionForm"><div class="modal-head"><div><span class="soft-label">Progressão acadêmica</span><h2 id="promotionStudentName">Aluno</h2><p>O histórico anterior será preservado; o cadastro do aluno continuará o mesmo.</p></div><button class="modal-close" value="cancel">×</button></div><input type="hidden" id="promotionStudentId" /><div class="form-grid"><label>Turma atual<input id="promotionCurrent" readonly /></label><label>Resultado do período<select id="promotionResult"><option value="completed">Aprovado / concluído</option><option value="retained">Retido</option><option value="transferred">Transferido</option></select></label><label class="full">Turma de destino<select id="promotionClass" required></select></label><label class="full">Observações<textarea id="promotionNotes"></textarea></label></div><p class="login-error hidden" id="promotionError"></p><div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><span class="action-spacer"></span><button class="primary-btn" type="submit" value="default">Confirmar progressão</button></div></form></dialog>
 
   <dialog class="modal" id="studentHistoryModal"><div><div class="modal-head"><div><span class="soft-label">Histórico acadêmico</span><h2 id="historyStudentName">Aluno</h2><p>Trajetória por ano, série e turma.</p></div><button class="modal-close" type="button" data-close-student-history>×</button></div><div id="studentHistoryList" class="student-history-list"></div><div class="modal-actions"><span class="action-spacer"></span><button class="secondary-btn" type="button" data-close-student-history>Fechar</button></div></div></dialog>
+
+  <dialog class="modal progression-rules-modal" id="progressionRulesModal"><div><div class="modal-head"><div><span class="soft-label">Configuração administrativa</span><h2>Regras de progressão</h2><p>Defina a série seguinte. Transferências e retenções continuam sendo tratadas individualmente.</p></div><button class="modal-close" type="button" id="closeProgressionRules">×</button></div><form id="progressionRuleForm" class="compact-form"><input type="hidden" id="progressionRuleId" /><input id="progressionFromGrade" placeholder="Série atual" required /><input id="progressionToGrade" placeholder="Próxima série" required /><select id="progressionRuleStatus"><option value="active">Ativa</option><option value="inactive">Inativa</option></select><button class="primary-btn" type="submit">Salvar regra</button><button class="link-btn" type="button" id="clearProgressionRule">Limpar</button></form><p class="login-error hidden" id="progressionRuleError"></p><div class="config-list" id="progressionRuleList"></div></div></dialog>
 
   <dialog class="modal" id="classModal">
     <form method="dialog" id="classForm">
@@ -306,7 +309,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261103-reports"></script>
+  <script src="./app.js?v=20261103-progressions"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
@@ -314,5 +317,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./library.js?v=20261103-library-routes"></script>
   <script src="./reports.js?v=20261103-reports"></script>
+  <script src="./progressions.js?v=20261103-progressions"></script>
 </body>
 </html>
