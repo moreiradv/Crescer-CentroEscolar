@@ -24,7 +24,7 @@ function normalizeUsername(value) {
 }
 
 function safeUser(row) {
-  return { id: row.id, username: row.username, name: row.name, role: row.role, initials: row.initials, status: row.status, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignment: row.assignment || null };
+  return { id: row.id, username: row.username, name: row.name, role: row.role, initials: row.initials, status: row.status, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignments: row.assignments || [], assignment: row.assignment || null };
 }
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -39,7 +39,7 @@ function withCors(response, request) {
   if (!ALLOWED_EXTERNAL_ORIGINS.has(origin)) return response;
   const headers = new Headers(response.headers);
   headers.set("access-control-allow-origin", origin);
-  headers.set("access-control-allow-headers", "content-type, authorization");
+  headers.set("access-control-allow-headers", "content-type, authorization, x-teacher-assignment-id");
   headers.set("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS");
   headers.set("vary", "Origin");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -135,13 +135,16 @@ async function getSession(request, db) {
   return { ...safeUser(row), sessionId: row.session_id };
 }
 
-async function teacherAssignment(db, userId) {
-  return db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id WHERE ta.user_id = ? AND ta.status = 'active' LIMIT 1`).bind(userId).first();
+async function teacherAssignments(db, userId) {
+  const result = await db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id WHERE ta.user_id = ? AND ta.status = 'active' ORDER BY ta.school_year DESC, c.name, s.name`).bind(userId).all();
+  return result.results;
 }
 
-async function enrichUser(db, user) {
+async function enrichUser(db, user, assignmentId = 0) {
   if (!user || user.role !== "Professor") return user;
-  return { ...user, assignment: await teacherAssignment(db, user.id) || null };
+  const assignments = await teacherAssignments(db, user.id);
+  const assignment = assignments.find(item => Number(item.id) === Number(assignmentId)) || assignments[0] || null;
+  return { ...user, assignments, assignment };
 }
 
 function teacherScopeViolation(user, classId, subjectId = null, capability = "agenda") {
@@ -149,9 +152,10 @@ function teacherScopeViolation(user, classId, subjectId = null, capability = "ag
   const assignment = user.assignment;
   if (!assignment || assignment.status !== "active") return "Sua conta de professor ainda não possui uma turma ativa vinculada.";
   if (Number(assignment.class_id) !== Number(classId)) return "Sua conta não possui acesso a esta turma.";
+  if (Number(assignment.school_year) !== Number(user.requestedSchoolYear || assignment.school_year)) return "Sua conta não possui acesso a este ano letivo.";
   if (capability === "agenda" && !assignment.can_agenda) return "A Agenda Escolar não está habilitada para esta conta.";
   if (capability === "attendance" && !assignment.can_attendance) return "A frequência não está habilitada para esta conta.";
-  if (assignment.education_stage === "Ensino Fundamental" && Number(assignment.subject_id) !== Number(subjectId)) return "Sua conta não possui acesso a esta disciplina.";
+  if (assignment.subject_id && Number(assignment.subject_id) !== Number(subjectId)) return "Sua conta não possui acesso a esta disciplina.";
   return null;
 }
 
@@ -196,14 +200,14 @@ async function requirePedagogical(request, db) {
   if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
   const passwordBlock = passwordChangeRequired(user); if (passwordBlock) return passwordBlock;
   if (!PEDAGOGICAL_ROLES.has(user.role)) return { error: json({ error: "Seu perfil não possui acesso às funções pedagógicas." }, 403) };
-  return { user: await enrichUser(db, user) };
+  return { user: await enrichUser(db, user, Number(request.headers.get("x-teacher-assignment-id") || 0)) };
 }
 
 async function requireUser(request, db) {
   const user = await getSession(request, db);
   if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
   const passwordBlock = passwordChangeRequired(user); if (passwordBlock) return passwordBlock;
-  return { user: await enrichUser(db, user) };
+  return { user: await enrichUser(db, user, Number(request.headers.get("x-teacher-assignment-id") || 0)) };
 }
 
 async function requireEnrollment(request, db) {
@@ -578,7 +582,7 @@ async function handleApi(request, env, path) {
 
   if (path === "/api/session" && request.method === "GET") {
     const user = await getSession(request, db);
-    return json({ user: user ? safeUser(await enrichUser(db, user)) : null }, user ? 200 : 401);
+    return json({ user: user ? safeUser(await enrichUser(db, user, Number(request.headers.get("x-teacher-assignment-id") || 0))) : null }, user ? 200 : 401);
   }
 
   if (path === "/api/logout" && request.method === "POST") {
@@ -942,8 +946,9 @@ async function handleApi(request, env, path) {
 
   if (path === "/api/users" && request.method === "GET") {
     const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
-    const result = await db.prepare(`SELECT u.id, u.username, u.name, u.role, u.initials, u.status, u.must_change_password, u.created_at, u.updated_at, ta.education_stage, ta.class_id, ta.subject_id, ta.school_year, ta.can_attendance, ta.can_agenda, c.name AS class_name, s.name AS subject_name FROM users u LEFT JOIN teacher_assignments ta ON ta.user_id = u.id LEFT JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY CASE u.role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, u.name`).all();
-    return json({ users: result.results });
+    const result = await db.prepare(`SELECT id, username, name, role, initials, status, must_change_password, created_at, updated_at FROM users ORDER BY CASE role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, name`).all();
+    const assignments = await db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY ta.school_year DESC, c.name, s.name`).all();
+    return json({ users: result.results.map(user => { const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id)); return { ...user, assignments: links, ...(links[0] || {}) }; }) });
   }
 
   if (path === "/api/users" && request.method === "POST") {
@@ -970,6 +975,19 @@ async function handleApi(request, env, path) {
   }
 
   const userMatch = path.match(/^\/api\/users\/(\d+)$/);
+  const assignmentCollectionMatch = path.match(/^\/api\/users\/(\d+)\/assignments$/);
+  if (assignmentCollectionMatch && request.method === "POST") {
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const userId = Number(assignmentCollectionMatch[1]); const body = await readJson(request); const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
+    const teacher = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'Professor'`).bind(userId).first(); if (!teacher) return json({ error: "Professor não encontrado." }, 404);
+    try { const now = Date.now(); const result = await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).bind(userId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, auth.user.id, now, now).run(); await audit(db, auth.user.id, "teacher_assignment_created", userId, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id: result.meta.last_row_id }, 201); } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Esta atribuição já está cadastrada para o professor." }, 409); throw error; }
+  }
+
+  const assignmentMatch = path.match(/^\/api\/teacher-assignments\/(\d+)$/);
+  if (assignmentMatch && request.method === "PUT") {
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error; const body = await readJson(request); const status = body.status === "inactive" ? "inactive" : "active"; const result = await db.prepare(`UPDATE teacher_assignments SET status = ?, updated_at = ? WHERE id = ?`).bind(status, Date.now(), Number(assignmentMatch[1])).run(); if (!result.meta.changes) return json({ error: "Atribuição não encontrada." }, 404); await audit(db, auth.user.id, "teacher_assignment_status", Number(assignmentMatch[1]), status); return json({ ok: true });
+  }
+
   if (userMatch && request.method === "PUT") {
     const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
     const targetId = Number(userMatch[1]); const existing = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetId).first();
@@ -991,8 +1009,11 @@ async function handleApi(request, env, path) {
         await db.prepare(`UPDATE users SET username = ?, username_key = ?, name = ?, role = ?, initials = ?, status = ?, updated_at = ? WHERE id = ?`)
           .bind(username, normalizeUsername(username), name, role, initialsFor(name), status, Date.now(), targetId).run();
       }
-      if (role === "Professor") await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET education_stage = excluded.education_stage, class_id = excluded.class_id, subject_id = excluded.subject_id, school_year = excluded.school_year, can_attendance = excluded.can_attendance, can_agenda = excluded.can_agenda, status = excluded.status, updated_at = excluded.updated_at`)
-        .bind(targetId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, status, auth.user.id, existing.created_at || Date.now(), Date.now()).run();
+      if (role === "Professor") {
+        const existingAssignment = await db.prepare(`SELECT id FROM teacher_assignments WHERE user_id = ? ORDER BY id LIMIT 1`).bind(targetId).first();
+        if (existingAssignment) await db.prepare(`UPDATE teacher_assignments SET education_stage = ?, class_id = ?, subject_id = ?, school_year = ?, can_attendance = ?, can_agenda = ?, status = ?, updated_at = ? WHERE id = ?`).bind(assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, status, Date.now(), existingAssignment.id).run();
+        else await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(targetId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, status, auth.user.id, Date.now(), Date.now()).run();
+      }
       else await db.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`).bind(targetId).run();
       if (status === "inactive" || role === "Professor" || body.password) await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(targetId).run();
       await audit(db, auth.user.id, "user_updated", targetId, username); return json({ ok: true });
