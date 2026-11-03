@@ -3,6 +3,7 @@ const STYLES = __STYLES__;
 const APP_JS = __APP_JS__;
 const ENROLLMENTS_JS = __ENROLLMENTS_JS__;
 const LIBRARY_JS = __LIBRARY_JS__;
+const REPORTS_JS = __REPORTS_JS__;
 const LOGO_BASE64 = __LOGO_BASE64__;
 
 const SESSION_COOKIE = "crescer_session";
@@ -53,7 +54,7 @@ function securityHeaders(contentType, cacheControl = "no-cache") {
     "referrer-policy": "strict-origin-when-cross-origin",
     "x-frame-options": "SAMEORIGIN",
     "permissions-policy": "camera=(), microphone=(), geolocation=()",
-    "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'",
+    "content-security-policy": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'self'",
   };
 }
 
@@ -916,19 +917,58 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/indicators" && request.method === "GET") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error;
-    const [distributionResult, classResult, riskResult] = await db.batch([
-      db.prepare(`SELECT status, COUNT(*) AS total FROM attendance_records GROUP BY status`),
-      db.prepare(`SELECT c.id, c.name, COUNT(DISTINCT s.id) AS student_count, COUNT(a.id) AS record_count, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended FROM classes c LEFT JOIN students s ON s.class_id = c.id AND s.status = 'active' LEFT JOIN attendance_records a ON a.student_id = s.id WHERE c.status = 'active' GROUP BY c.id ORDER BY CASE WHEN COUNT(a.id) = 0 THEN 0 ELSE CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id) END DESC, c.name`),
-      db.prepare(`SELECT s.id, s.name, s.registration, c.name AS class_name, COUNT(a.id) AS record_count, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended, SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absences FROM students s JOIN classes c ON c.id = s.class_id LEFT JOIN attendance_records a ON a.student_id = s.id WHERE s.status = 'active' GROUP BY s.id HAVING COUNT(a.id) > 0 AND (CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id)) < 0.85 ORDER BY (CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id)) ASC LIMIT 12`),
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
+    const params = new URL(request.url).searchParams;
+    const from = String(params.get("from") || ""); const to = String(params.get("to") || "");
+    const requestedClassId = Number(params.get("class_id") || 0); const requestedSubjectId = Number(params.get("subject_id") || 0); const requestedYear = Number(params.get("school_year") || 0);
+    if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) || (from && to && from > to)) return json({ error: "O período informado é inválido." }, 400);
+    const assignment = auth.user.role === "Professor" ? auth.user.assignment : null;
+    if (auth.user.role === "Professor" && !assignment) return json({ error: "Sua conta de professor ainda não possui uma turma ativa vinculada." }, 403);
+    const classId = assignment ? Number(assignment.class_id) : requestedClassId;
+    const subjectId = assignment ? Number(assignment.subject_id || 0) : requestedSubjectId;
+    const schoolYear = assignment ? Number(assignment.school_year) : requestedYear;
+    const where = []; const bindings = [];
+    if (from) { where.push("a.attendance_date >= ?"); bindings.push(from); }
+    if (to) { where.push("a.attendance_date <= ?"); bindings.push(to); }
+    if (classId) { where.push("a.class_id = ?"); bindings.push(classId); }
+    if (subjectId) { where.push("a.subject_id = ?"); bindings.push(subjectId); }
+    if (schoolYear) { where.push("a.school_year = ?"); bindings.push(schoolYear); }
+    const filterSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const prepared = sql => db.prepare(sql).bind(...bindings);
+    const [distributionResult, classResult, riskResult, studentResult, trendResult, filterClassResult, filterSubjectResult, filterYearResult] = await db.batch([
+      prepared(`SELECT a.status, COUNT(*) AS total FROM attendance_records a ${filterSql} GROUP BY a.status`),
+      prepared(`SELECT c.id, c.name, c.school_year, COUNT(DISTINCT a.student_id) AS student_count, COUNT(a.id) AS record_count, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended, SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absences FROM attendance_records a JOIN classes c ON c.id = a.class_id ${filterSql} GROUP BY c.id, c.name, c.school_year ORDER BY CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id) DESC, c.name`),
+      prepared(`SELECT s.id, s.name, s.registration, c.name AS class_name, c.school_year, COALESCE(sub.name, 'Geral da turma') AS subject_name, COUNT(a.id) AS record_count, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended, SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absences FROM attendance_records a JOIN students s ON s.id = a.student_id JOIN classes c ON c.id = a.class_id LEFT JOIN subjects sub ON sub.id = a.subject_id ${filterSql} GROUP BY s.id, s.name, s.registration, c.name, c.school_year, sub.name HAVING COUNT(a.id) > 0 AND CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id) < 0.85 ORDER BY CAST(SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS REAL) / COUNT(a.id), s.name LIMIT 100`),
+      prepared(`SELECT s.id, s.name, s.registration, c.name AS class_name, c.school_year, COALESCE(sub.name, 'Geral da turma') AS subject_name, COUNT(a.id) AS record_count, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended, SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absences, SUM(CASE WHEN a.status = 'justified' THEN 1 ELSE 0 END) AS justified FROM attendance_records a JOIN students s ON s.id = a.student_id JOIN classes c ON c.id = a.class_id LEFT JOIN subjects sub ON sub.id = a.subject_id ${filterSql} GROUP BY s.id, s.name, s.registration, c.name, c.school_year, sub.name ORDER BY c.name, s.name`),
+      prepared(`SELECT a.attendance_date AS date, COUNT(*) AS total, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended FROM attendance_records a ${filterSql} GROUP BY a.attendance_date ORDER BY a.attendance_date`),
+      db.prepare(`SELECT id, name, school_year FROM classes WHERE status = 'active' ORDER BY school_year DESC, name`),
+      db.prepare(`SELECT id, name FROM subjects WHERE status = 'active' ORDER BY name`),
+      db.prepare(`SELECT DISTINCT school_year FROM classes WHERE status = 'active' ORDER BY school_year DESC`),
     ]);
     const distribution = { present: 0, late: 0, justified: 0, absent: 0 };
     distributionResult.results.forEach(row => { distribution[row.status] = Number(row.total) || 0; });
     const total = Object.values(distribution).reduce((sum, value) => sum + value, 0);
     const overallPercent = total ? Math.round(((distribution.present + distribution.late) / total) * 1000) / 10 : 0;
-    const classRanking = classResult.results.map(row => ({ ...row, percent: row.record_count ? Math.round((Number(row.attended) / Number(row.record_count)) * 1000) / 10 : 0 }));
-    const riskStudents = riskResult.results.map(row => ({ ...row, percent: Math.round((Number(row.attended) / Number(row.record_count)) * 1000) / 10 }));
-    return json({ distribution, total, overallPercent, classRanking, riskStudents });
+    const withPercent = row => ({ ...row, student_count: Number(row.student_count || 0), record_count: Number(row.record_count || 0), attended: Number(row.attended || 0), absences: Number(row.absences || 0), justified: Number(row.justified || 0), percent: row.record_count ? Math.round((Number(row.attended) / Number(row.record_count)) * 1000) / 10 : 0 });
+    const classRanking = classResult.results.map(withPercent);
+    const riskStudents = riskResult.results.map(withPercent);
+    const students = studentResult.results.map(withPercent);
+    const trend = trendResult.results.map(row => ({ date: row.date, total: Number(row.total), attended: Number(row.attended), percent: row.total ? Math.round((Number(row.attended) / Number(row.total)) * 1000) / 10 : 0 }));
+    let comparison = null;
+    if (from && to) {
+      const fromDate = new Date(`${from}T00:00:00Z`); const toDate = new Date(`${to}T00:00:00Z`); const days = Math.floor((toDate - fromDate) / 86400000) + 1;
+      const previousToDate = new Date(fromDate.getTime() - 86400000); const previousFromDate = new Date(previousToDate.getTime() - (days - 1) * 86400000);
+      const previousFrom = previousFromDate.toISOString().slice(0, 10); const previousTo = previousToDate.toISOString().slice(0, 10);
+      const previousWhere = ["a.attendance_date >= ?", "a.attendance_date <= ?"]; const previousBindings = [previousFrom, previousTo];
+      if (classId) { previousWhere.push("a.class_id = ?"); previousBindings.push(classId); }
+      if (subjectId) { previousWhere.push("a.subject_id = ?"); previousBindings.push(subjectId); }
+      if (schoolYear) { previousWhere.push("a.school_year = ?"); previousBindings.push(schoolYear); }
+      const previous = await db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN a.status IN ('present','late') THEN 1 ELSE 0 END) AS attended FROM attendance_records a WHERE ${previousWhere.join(" AND ")}`).bind(...previousBindings).first();
+      const previousTotal = Number(previous?.total || 0); const previousPercent = previousTotal ? Math.round((Number(previous.attended || 0) / previousTotal) * 1000) / 10 : 0;
+      if (previousTotal) comparison = { from: previousFrom, to: previousTo, total: previousTotal, percent: previousPercent, difference: Math.round((overallPercent - previousPercent) * 10) / 10 };
+    }
+    const filterOptions = assignment ? { classes: filterClassResult.results.filter(row => Number(row.id) === classId), subjects: assignment.subject_id ? filterSubjectResult.results.filter(row => Number(row.id) === subjectId) : [], years: [schoolYear] } : { classes: filterClassResult.results, subjects: filterSubjectResult.results, years: filterYearResult.results.map(row => Number(row.school_year)) };
+    return json({ distribution, total, overallPercent, studentCount: new Set(students.map(row => row.id)).size, classRanking, riskStudents, students, trend, comparison, filters: { from, to, classId: classId || null, subjectId: subjectId || null, schoolYear: schoolYear || null }, filterOptions });
   }
 
   if (path === "/api/audit" && request.method === "GET") {
@@ -1070,7 +1110,7 @@ export default {
       if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") {
         const origin = request.headers.get("origin") || "";
         if (!ALLOWED_EXTERNAL_ORIGINS.has(origin)) return new Response(null, { status: 403 });
-        return new Response(null, { status: 204, headers: { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-max-age": "86400", "vary": "Origin" } });
+        return new Response(null, { status: 204, headers: { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization, x-teacher-assignment-id", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-max-age": "86400", "vary": "Origin" } });
       }
       if (url.pathname.startsWith("/api/")) return withCors(await handleApi(request, env, url.pathname), request);
       if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
@@ -1079,6 +1119,7 @@ export default {
       if (url.pathname === "/app.js") return new Response(APP_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/enrollments.js") return new Response(ENROLLMENTS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/library.js") return new Response(LIBRARY_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
+      if (url.pathname === "/reports.js") return new Response(REPORTS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/assets/logo-crescer.png") return new Response(decodeBase64(LOGO_BASE64), { headers: securityHeaders("image/png", "public, max-age=86400") });
       return new Response("Not found", { status: 404, headers: securityHeaders("text/plain; charset=utf-8") });
     } catch (error) {

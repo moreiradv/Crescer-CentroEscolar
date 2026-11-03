@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261029-main-prompt" />
+  <link rel="stylesheet" href="./styles.css?v=20261103-reports" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -63,7 +63,7 @@
         <p class="nav-label">Acompanhamento</p>
         <button class="nav-item" data-page="agendas" data-pedagogical-only><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
-        <button class="nav-item" data-page="indicadores" data-manager-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
+        <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
         <button class="nav-item" data-page="biblioteca" data-manager-only><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
@@ -125,7 +125,7 @@
               <button data-open-modal="agendaModal" data-pedagogical-only><span class="quick-icon blue">＋</span><strong>Nova agenda</strong><small>Registrar atividade</small></button>
               <button data-page-link="frequencia" data-pedagogical-only><span class="quick-icon green">✓</span><strong>Lançar frequência</strong><small>Registrar presença</small></button>
               <button data-page-link="agendas" data-pedagogical-only><span class="quick-icon orange">⌕</span><strong>Consultar agenda</strong><small>Ver todos os registros</small></button>
-              <button data-page-link="indicadores" data-manager-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
+              <button data-page-link="indicadores" data-pedagogical-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
             </div>
           </article>
 
@@ -158,7 +158,8 @@
       </div>
 
       <div class="page" id="page-indicadores">
-        <section class="page-head"><div><p class="eyebrow">Dados para decidir</p><h1>Indicadores</h1><p>Analise dados reais de frequência da escola, das turmas e dos alunos.</p></div><button class="primary-btn" id="indicatorExportBtn">⇩ Gerar relatório</button></section>
+        <section class="page-head"><div><p class="eyebrow">Dados para decidir</p><h1>Indicadores</h1><p>Analise dados reais de frequência da escola, das turmas e dos alunos.</p></div><button class="hidden" id="indicatorExportBtn" aria-hidden="true">Exportar</button></section>
+        <section class="panel report-toolbar hidden"><div class="filters-row"><label>Data inicial<input type="date" id="reportStartDate" /></label><label>Data final<input type="date" id="reportEndDate" /></label><label>Turma<select id="reportClassFilter"><option value="">Todas as turmas</option></select></label><label>Disciplina<select id="reportSubjectFilter"><option value="">Todas as disciplinas</option></select></label><label>Ano letivo<select id="reportYearFilter"><option value="">Todos os anos</option></select></label><label>Indicador<select id="reportIndicatorFilter"><option value="frequency">Frequência escolar</option></select></label></div><div class="report-export-actions"><button class="secondary-btn" data-report-format="pdf">PDF</button><button class="secondary-btn" data-report-format="docx">Word</button><button class="secondary-btn" data-report-format="xlsx">Excel</button><button class="primary-btn" data-report-format="pptx">PowerPoint</button></div></section>
         <section class="insight-hero"><div><span class="soft-label">Resumo em tempo real</span><h2 id="indicatorHeadline">Comece lançando a frequência.</h2><p id="indicatorDescription">Os indicadores serão calculados automaticamente com os registros salvos.</p></div><div class="hero-score"><strong id="indicatorScore">0%</strong><span>índice geral</span><b id="indicatorTotal">0 registros</b></div></section>
         <section class="indicator-grid"><article class="panel"><div class="panel-head"><div><h2>Frequência por turma</h2><p>Ranking de todos os registros</p></div></div><div class="rank-list" id="classRanking"><p class="empty-state">Nenhuma frequência registrada.</p></div></article><article class="panel"><div class="panel-head"><div><h2>Distribuição do período</h2><p id="distributionTotal">0 registros processados</p></div></div><div class="distribution"><div class="big-donut" id="indicatorDonut"></div><div><p><i class="present"></i><span>Presentes</span><strong id="distPresent">0</strong></p><p><i class="late"></i><span>Atrasados</span><strong id="distLate">0</strong></p><p><i class="justified"></i><span>Justificados</span><strong id="distJustified">0</strong></p><p><i class="absent"></i><span>Não presentes</span><strong id="distAbsent">0</strong></p></div></div></article></section>
         <section class="panel risk-panel"><div class="panel-head"><div><h2>Alunos que pedem atenção</h2><p>Frequência abaixo de 85% em todos os registros</p></div></div><div class="risk-grid" id="riskStudents"><p class="empty-state">Nenhum aluno abaixo do índice de atenção.</p></div></section>
@@ -305,8 +306,13 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261103-agenda-save"></script>
+  <script src="./app.js?v=20261103-reports"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./library.js?v=20261103-library-routes"></script>
+  <script src="./reports.js?v=20261103-reports"></script>
 </body>
 </html>
