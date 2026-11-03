@@ -16,7 +16,7 @@ function database() {
   return pool;
 }
 
-async function ensureSchema() {
+export async function ensureSchema() {
   const db = database();
   if (!db) throw Object.assign(new Error('Banco persistente da Vercel ainda não está conectado.'), { status: 503 });
   if (!schemaPromise) schemaPromise = db.query(`
