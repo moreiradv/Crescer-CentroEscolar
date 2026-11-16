@@ -4,9 +4,10 @@ Sistema de gestão e acompanhamento escolar do Centro Educacional Crescer.
 
 ## Site online
 
-- Endereço principal: https://moreiradv.github.io/Crescer-CentroEscolar/
+- Endereço principal: https://crescer-escola-web.vercel.app/
+- Atalho do GitHub: https://moreiradv.github.io/Crescer-CentroEscolar/
 
-O GitHub Pages serve a interface completa. O backend seguro e o banco D1 permanecem no Sites, porque o GitHub Pages hospeda apenas arquivos estáticos. A comunicação acontece pela API autenticada e os usuários permanecem no endereço `github.io`.
+O domínio da Vercel serve a interface e a camada de segurança da API. O atalho do GitHub Pages redireciona automaticamente para o endereço oficial. Os registros legados continuam preservados no backend escolar existente, enquanto Agenda e Biblioteca utilizam o banco persistente conectado à Vercel.
 
 ## Funcionalidades
 

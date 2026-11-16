@@ -5,6 +5,15 @@ const OLD_API = 'https://crescer-gestao-escolar.davi-gonzaga1.chatgpt.site';
 const PUBLIC_ORIGIN = 'https://crescer-escola-web.vercel.app';
 const MANAGER_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar']);
 const PEDAGOGICAL_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar', 'Professor']);
+const MANAGER_ONLY_ROUTES = [
+  /^\/api\/indicators(?:\?|$)/,
+  /^\/api\/users(?:\/|$)/,
+  /^\/api\/teacher-assignments(?:\/|$)/,
+  /^\/api\/audit(?:\?|$)/,
+  /^\/api\/progressions(?:\/|$)/,
+  /^\/api\/progression-rules(?:\/|$)/,
+  /^\/api\/students\/\d+\/promote$/,
+];
 
 let pool;
 let schemaPromise;
@@ -298,6 +307,7 @@ export default async function handler(req, res) {
       const response = await handleAgendas(req, res, path);
       if (response !== null) return response;
     }
+    if (MANAGER_ONLY_ROUTES.some(pattern => pattern.test(path))) await requireUser(req, MANAGER_ROLES);
     return proxy(req, res, path);
   } catch (error) {
     console.error(error);
