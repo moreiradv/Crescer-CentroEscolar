@@ -23,9 +23,17 @@ const DB = { prepare: sql => new D1Statement(sql), batch: async statements => Pr
 
 const token = "progression-test-token";
 const tokenHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).toString("hex");
+const teacherToken = "teacher-scope-test-token";
+const teacherTokenHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(teacherToken))).toString("hex");
+const managerToken = "manager-scope-test-token";
+const managerTokenHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(managerToken))).toString("hex");
 const now = Date.now();
 database.prepare(`INSERT INTO users (username,username_key,name,role,initials,password_hash,password_salt,status,must_change_password,created_at,updated_at) VALUES ('admin','admin','Admin Teste','Administrador','AT','x','x','active',0,?,?)`).run(now, now);
 database.prepare(`INSERT INTO sessions (user_id,token_hash,expires_at,created_at) VALUES (1,?,?,?)`).run(tokenHash, now + 86400000, now);
+database.prepare(`INSERT INTO users (username,username_key,name,role,initials,password_hash,password_salt,status,must_change_password,created_at,updated_at) VALUES ('professor','professor','Professor Teste','Professor','PT','x','x','active',0,?,?)`).run(now, now);
+database.prepare(`INSERT INTO sessions (user_id,token_hash,expires_at,created_at) VALUES (2,?,?,?)`).run(teacherTokenHash, now + 86400000, now);
+database.prepare(`INSERT INTO users (username,username_key,name,role,initials,password_hash,password_salt,status,must_change_password,created_at,updated_at) VALUES ('gestao','gestao','Gestão Teste','Coordenação','GT','x','x','active',0,?,?)`).run(now, now);
+database.prepare(`INSERT INTO sessions (user_id,token_hash,expires_at,created_at) VALUES (3,?,?,?)`).run(managerTokenHash, now + 86400000, now);
 database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status,created_at,updated_at) VALUES ('Infantil V','Infantil V','Matutino',2026,'active',?,?)`).run(now, now);
 database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status,created_at,updated_at) VALUES ('1º Ano','1º Ano','Matutino',2027,'active',?,?)`).run(now, now);
 database.prepare(`INSERT INTO students (registration,name,birth_date,guardian_name,guardian_phone,class_id,status,created_at,updated_at) VALUES ('NAD-001','Nadine','2021-03-10','Responsável','63999999999',1,'active',?,?)`).run(now, now);
@@ -36,10 +44,17 @@ database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status
 database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status,created_at,updated_at) VALUES ('6º Ano Retenção','6º Ano','Vespertino',2027,'active',?,?)`).run(now, now);
 database.prepare(`INSERT INTO students (registration,name,birth_date,guardian_name,guardian_phone,class_id,status,created_at,updated_at) VALUES ('BRU-002','Bruno','2014-05-10','Responsável','63999999999',3,'active',?,?)`).run(now, now);
 database.prepare(`INSERT INTO student_class_history (student_id,class_id,school_year,grade_level_snapshot,class_name_snapshot,result_status,joined_at,created_at,updated_at) VALUES (2,3,2026,'6º Ano','6º Ano A','active',?,?,?)`).run(now, now, now);
+database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('História','Ensino Fundamental',1,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('Geografia','Ensino Fundamental',2,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO teacher_assignments (user_id,education_stage,class_id,subject_id,school_year,can_attendance,can_agenda,status,created_by,created_at,updated_at) VALUES (2,'Ensino Fundamental',3,1,2026,1,1,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO teacher_assignments (user_id,education_stage,class_id,subject_id,school_year,can_attendance,can_agenda,status,created_by,created_at,updated_at) VALUES (2,'Ensino Fundamental',3,2,2026,1,1,'active',1,?,?)`).run(now, now);
 
-const api = async (pathname, options = {}) => {
-  const response = await worker.fetch(new Request(`https://test.local${pathname}`, { ...options, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(options.headers || {}) } }), { DB });
-  const body = await response.json(); if (!response.ok) throw new Error(`${response.status}: ${body.error}`); return body;
+const requestApi = async (pathname, options = {}, authToken = token) => {
+  const response = await worker.fetch(new Request(`https://test.local${pathname}`, { ...options, headers: { authorization: `Bearer ${authToken}`, "content-type": "application/json", ...(options.headers || {}) } }), { DB });
+  const body = await response.json(); return { response, body };
+};
+const api = async (pathname, options = {}, authToken = token) => {
+  const { response, body } = await requestApi(pathname, options, authToken); if (!response.ok) throw new Error(`${response.status}: ${body.error}`); return body;
 };
 
 const prepared = await api("/api/progressions");
@@ -75,4 +90,35 @@ const dailyStatus = await api("/api/agenda-status?date=2026-11-01");
 assert.equal(dailyStatus.statuses.find(item => item.id === 1).status, "with_agenda");
 assert.equal(dailyStatus.statuses.find(item => item.id === 2).status, "no_agenda");
 assert.equal(dailyStatus.statuses.find(item => item.id === 3).status, "no_record");
-console.log("Integration tests passed: annual progression, preserved history, retention exception, optional agenda fields and three daily agenda states.");
+
+const teacherSessionHistory = await api("/api/session", { headers: { "x-teacher-assignment-id": "1" } }, teacherToken);
+assert.equal(teacherSessionHistory.user.assignments.length, 2);
+assert.equal(teacherSessionHistory.user.assignment.subject_name, "História");
+const teacherSessionGeography = await api("/api/session", { headers: { "x-teacher-assignment-id": "2" } }, teacherToken);
+assert.equal(teacherSessionGeography.user.assignment.subject_name, "Geografia");
+const teacherIndicatorAttempt = await requestApi("/api/indicators", { headers: { "x-teacher-assignment-id": "1" } }, teacherToken);
+assert.equal(teacherIndicatorAttempt.response.status, 403);
+const teacherOtherClassAttempt = await requestApi("/api/agendas", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ date: "2026-11-02", classId: 1, subjectId: 1, agenda: "Não autorizado", materials: [] }) }, teacherToken);
+assert.equal(teacherOtherClassAttempt.response.status, 403);
+const teacherOtherSubjectAttempt = await requestApi("/api/agendas", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ date: "2026-11-02", classId: 3, subjectId: 2, agenda: "Não autorizado", materials: [] }) }, teacherToken);
+assert.equal(teacherOtherSubjectAttempt.response.status, 403);
+const teacherMissingSubjectAttempt = await requestApi("/api/agendas", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ date: "2026-11-02", classId: 3, subjectId: null, agenda: "Não autorizado", materials: [] }) }, teacherToken);
+assert.equal(teacherMissingSubjectAttempt.response.status, 403);
+const teacherAgenda = await api("/api/agendas", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ date: "2026-11-02", classId: 3, subjectId: 1, agenda: "Conteúdo de História", materials: [] }) }, teacherToken);
+assert.equal(teacherAgenda.agenda.subject_id, 1);
+const teacherAgendas = await api("/api/agendas", { headers: { "x-teacher-assignment-id": "1" } }, teacherToken);
+assert.equal(teacherAgendas.agendas.every(entry => entry.class_id === 3 && entry.subject_id === 1), true);
+const teacherAttendanceAttempt = await requestApi("/api/attendance", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ date: "2026-11-02", classId: 1, records: [] }) }, teacherToken);
+assert.equal(teacherAttendanceAttempt.response.status, 403);
+const teacherLibraryRead = await requestApi("/api/library-books", { headers: { "x-teacher-assignment-id": "1" } }, teacherToken);
+assert.equal(teacherLibraryRead.response.status, 200);
+const teacherLibraryWrite = await requestApi("/api/library-books", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ title: "Livro proibido", author: "Autor" }) }, teacherToken);
+assert.equal(teacherLibraryWrite.response.status, 403);
+const managerSession = await api("/api/session", {}, managerToken);
+assert.equal(managerSession.user.role, "Gestão Escolar");
+const managerUsers = await requestApi("/api/users", {}, managerToken);
+assert.equal(managerUsers.response.status, 200);
+assert.equal(managerUsers.body.users.find(user => user.username === "gestao").role, "Gestão Escolar");
+const managerProgressions = await requestApi("/api/progressions", {}, managerToken);
+assert.equal(managerProgressions.response.status, 200);
+console.log("Integration tests passed: annual progression, preserved history, optional agenda states, multiple teacher assignments, strict server scope, manager access and read-only teacher library.");

@@ -10,7 +10,7 @@ O GitHub Pages serve a interface completa. O backend seguro e o banco D1 permane
 
 ## Funcionalidades
 
-- Perfis Administrador, Coordenação, Professor e Financeiro
+- Perfis Administrador, Gestão Escolar, Professor e Financeiro
 - Gestão de usuários, turmas e alunos
 - Agenda escolar compartilhada
 - Frequência por turma e data

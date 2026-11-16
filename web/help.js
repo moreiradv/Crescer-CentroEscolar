@@ -6,7 +6,7 @@ function helpAudienceAllowed(audience='all'){
 
 function applyHelpProfile(){
   if(!currentUser)return;
-  $('#helpProfileLabel').textContent=`Orientações para ${currentUser.role}`;
+  $('#helpProfileLabel').textContent=`Orientações para ${roleLabel(currentUser.role)}`;
   $$('[data-help-audience]').forEach(element=>element.classList.toggle('hidden',!helpAudienceAllowed(element.dataset.helpAudience)));
   filterHelp();
 }

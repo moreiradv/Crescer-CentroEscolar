@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261115-email-relatorios" />
+  <link rel="stylesheet" href="./styles.css?v=20261116-permissoes" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -63,21 +63,19 @@
         <p class="nav-label">Acompanhamento</p>
         <button class="nav-item" data-page="agendas" data-pedagogical-only><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
-        <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
+        <button class="nav-item" data-page="indicadores" data-indicators-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
         <button class="nav-item" data-page="biblioteca" data-library-access><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
-        <button class="nav-item" data-page="professores" data-admin-only><span class="nav-icon">♧</span><span>Professores</span></button>
-        <button class="nav-item" data-page="historico" data-admin-only><span class="nav-icon">↺</span><span>Histórico</span></button>
-        <button class="nav-item" data-page="usuarios" data-admin-only><span class="nav-icon">♙</span><span>Usuários</span></button>
+        <button class="nav-item" data-page="professores" data-manager-only><span class="nav-icon">♧</span><span>Professores</span></button>
+        <button class="nav-item" data-page="historico" data-manager-only><span class="nav-icon">↺</span><span>Histórico</span></button>
+        <button class="nav-item" data-page="usuarios" data-manager-only><span class="nav-icon">♙</span><span>Usuários</span></button>
       </nav>
       <div class="sidebar-help">
         <div class="help-icon">?</div><strong>Precisa de ajuda?</strong><span>Orientações para usar o sistema</span><button id="openHelpCenter">Central de ajuda</button>
       </div>
-      <div class="sidebar-user">
-        <span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><span data-user-role>Perfil</span></div><button id="logoutBtn" aria-label="Sair">↪</button>
-      </div>
+      <div class="sidebar-user"><span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><span data-user-role>Perfil</span></div></div>
     </aside>
 
     <main class="main-content">
@@ -87,7 +85,8 @@
         <div class="top-actions">
           <button class="icon-button" id="openHelpTop" aria-label="Abrir Central de Ajuda" title="Central de Ajuda">?</button>
           <button class="icon-button notification" aria-label="Notificações">♢<span></span></button>
-          <div class="top-user"><span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><small data-user-role>Perfil</small></div><span>⌄</span></div>
+          <div class="top-user"><span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><small data-user-role>Perfil</small></div></div>
+          <button class="top-logout" id="logoutBtn" type="button" aria-label="Sair do sistema" title="Sair do sistema"><span>↪</span><b>Sair do sistema</b></button>
         </div>
       </header>
 
@@ -125,7 +124,7 @@
               <button data-open-modal="agendaModal" data-pedagogical-only><span class="quick-icon blue">＋</span><strong>Nova agenda</strong><small>Registrar atividade</small></button>
               <button data-page-link="frequencia" data-pedagogical-only><span class="quick-icon green">✓</span><strong>Lançar frequência</strong><small>Registrar presença</small></button>
               <button data-page-link="agendas" data-pedagogical-only><span class="quick-icon orange">⌕</span><strong>Consultar agenda</strong><small>Ver todos os registros</small></button>
-              <button data-page-link="indicadores" data-pedagogical-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
+              <button data-page-link="indicadores" data-indicators-only><span class="quick-icon violet">↗</span><strong>Ver indicadores</strong><small>Analisar resultados</small></button>
             </div>
           </article>
 
@@ -155,7 +154,7 @@
       <div class="page" id="page-turmas">
         <section class="page-head"><div><p class="eyebrow">Estrutura acadêmica</p><h1>Turmas e alunos</h1><p>Crie turmas e vincule os alunos que aparecerão na frequência.</p></div><div class="head-actions"><button class="secondary-btn" id="newStudentBtn">＋ Novo aluno</button><button class="primary-btn" id="newClassBtn">＋ Nova turma</button></div></section>
         <section class="class-grid" id="classCards"><article class="panel empty-state">Nenhuma turma cadastrada.</article></section>
-        <section class="panel progression-panel hidden" id="progressionPanel" data-admin-only><div class="table-head"><div><h2>Progressões preparadas</h2><p>Alunos prontos para o próximo ano, sem duplicar o cadastro principal.</p></div><button class="secondary-btn" id="openProgressionRules">⚙ Regras de progressão</button></div><div class="progression-list" id="progressionList"><p class="empty-state">Carregando progressões...</p></div></section>
+        <section class="panel progression-panel hidden" id="progressionPanel" data-manager-only><div class="table-head"><div><h2>Progressões preparadas</h2><p>Alunos prontos para o próximo ano, sem duplicar o cadastro principal.</p></div><div class="head-actions"><button class="secondary-btn" id="openProgressionRules">⚙ Regras de progressão</button><button class="primary-btn hidden" id="confirmSelectedProgressions">Confirmar selecionados</button></div></div><div class="progression-list" id="progressionList"><p class="empty-state">Carregando progressões...</p></div></section>
         <section class="panel data-panel"><div class="table-head"><div><h2>Alunos por ano letivo</h2><p><span id="studentCount">0</span> cadastros únicos no banco</p></div><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div><div class="table-wrap"><table><thead><tr><th>Ano</th><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th><th>Ações</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
       </div>
 
@@ -226,7 +225,7 @@
               <div class="help-card-body"><h3>Turmas e alunos</h3><ol><li>Acesse <b>Turmas e alunos</b> e selecione <b>Nova turma</b>.</li><li>Informe nome, série, turno, ano letivo e professor regente.</li><li>Depois selecione <b>Novo aluno</b>, informe matrícula e dados do responsável e vincule a turma.</li></ol><h3>Indicadores</h3><p>Acesse <b>Indicadores</b> para consultar os índices calculados a partir das frequências realmente salvas. Use os filtros de período, turma, disciplina e ano letivo quando disponíveis.</p></div>
             </details>
 
-            <details class="help-card panel" data-help-audience="admin" data-help-search="professor usuário permissão cadastrar atribuir disciplina turma acesso senha">
+            <details class="help-card panel" data-help-audience="manager" data-help-search="professor usuário permissão cadastrar atribuir disciplina turma acesso senha">
               <summary><span class="help-card-icon teal">♧</span><span><strong>Professores e permissões</strong><small>Contas e atribuições pedagógicas</small></span><b>⌄</b></summary>
               <div class="help-card-body"><ol><li>Acesse <b>Professores</b> e selecione <b>Novo professor</b>.</li><li>Informe nome, usuário, senha temporária, etapa, turma e disciplina.</li><li>Marque as permissões de Agenda e Frequência necessárias.</li><li>Salve e entregue a credencial temporária ao professor.</li></ol><p>Para alterar uma atribuição, abra o acesso do professor, atualize turma, disciplina ou ano letivo e salve. A senha existente permanece protegida; use <b>Redefinir senha</b> quando necessário.</p></div>
             </details>
@@ -248,15 +247,15 @@
 
             <details class="help-card panel" data-help-audience="library" data-help-search="biblioteca livro livros pesquisar autor detalhes acervo cadastrar editar permissão">
               <summary><span class="help-card-icon violet">▥</span><span><strong>Biblioteca</strong><small>Pesquisa e consulta do acervo</small></span><b>⌄</b></summary>
-              <div class="help-card-body"><p>Acesse <b>Biblioteca</b> e pesquise pelo nome do livro ou pelo autor. Selecione um cartão ou <b>Detalhes</b> para consultar sinopse, editora, faixa etária e quantidade de exemplares.</p><p data-help-audience="manager">Administradores e Coordenação podem usar <b>Cadastrar livro</b> e <b>Editar</b> para manter o acervo.</p><p data-help-audience="teacher">Professores possuem acesso de consulta. Cadastro, edição e exclusão permanecem restritos à Gestão Escolar.</p></div>
+              <div class="help-card-body"><p>Acesse <b>Biblioteca</b> e pesquise pelo nome do livro ou pelo autor. Selecione um cartão ou <b>Detalhes</b> para consultar sinopse, editora, faixa etária e quantidade de exemplares.</p><p data-help-audience="manager">Administradores e Gestão Escolar podem usar <b>Cadastrar livro</b> e <b>Editar</b> para manter o acervo.</p><p data-help-audience="teacher">Professores possuem acesso de consulta. Cadastro, edição e exclusão permanecem restritos à Gestão Escolar.</p></div>
             </details>
 
             <details class="help-card panel" data-help-audience="teacher" data-help-search="professor acesso individual disciplina turma atribuição ano letivo mais de uma disciplina">
               <summary><span class="help-card-icon teal">♧</span><span><strong>Meu acesso de professor</strong><small>Turmas e disciplinas autorizadas</small></span><b>⌄</b></summary>
-              <div class="help-card-body"><p>Você visualiza somente as turmas, disciplinas e anos letivos atribuídos ao seu acesso. Se possuir mais de uma atribuição, use o seletor <b>Atribuição</b> no painel para alternar entre elas.</p><p>Se uma turma ou disciplina não aparecer, solicite à Coordenação ou Administração que confira seu vínculo. As atribuições do novo ano letivo precisam ser atualizadas pela Gestão.</p></div>
+              <div class="help-card-body"><p>Você visualiza somente as turmas, disciplinas e anos letivos atribuídos ao seu acesso. Se possuir mais de uma atribuição, use o seletor <b>Atribuição</b> no painel para alternar entre elas.</p><p>Se uma turma ou disciplina não aparecer, solicite à Gestão Escolar ou Administração que confira seu vínculo. As atribuições do novo ano letivo precisam ser atualizadas pela Gestão Escolar.</p></div>
             </details>
 
-            <details class="help-card panel" data-help-audience="admin" data-help-search="ano letivo progressão escolar próximo ano histórico retenção transferência série destino">
+            <details class="help-card panel" data-help-audience="manager" data-help-search="ano letivo progressão escolar próximo ano histórico retenção transferência série destino">
               <summary><span class="help-card-icon orange">↗</span><span><strong>Ano letivo e progressão</strong><small>Vínculos anuais e histórico</small></span><b>⌄</b></summary>
               <div class="help-card-body"><ol><li>Crie a turma do novo ano letivo em <b>Turmas e alunos</b>.</li><li>Confira a área <b>Progressões preparadas</b>.</li><li>Revise a turma de destino e confirme a progressão.</li><li>Use as regras de progressão para ajustar correspondências entre séries.</li></ol><p>A progressão cria um novo vínculo anual sem duplicar o cadastro principal. O aluno continua no histórico da turma anterior, com frequências, agendas e matrículas preservadas no respectivo ano.</p></div>
             </details>
@@ -267,13 +266,13 @@
         <section class="help-section" aria-labelledby="helpFaqTitle">
           <div class="library-section-head"><div><h2 id="helpFaqTitle">Perguntas frequentes</h2><p>Respostas rápidas para dúvidas comuns.</p></div></div>
           <div class="help-faq panel" id="helpFaq">
-            <details data-help-audience="teacher" data-help-search="disciplina não visualizar"><summary>Por que não consigo visualizar determinada disciplina?<b>＋</b></summary><p>Seu acesso mostra apenas as disciplinas vinculadas pela Gestão. Se a disciplina deveria estar disponível, peça à Coordenação ou Administração para revisar sua atribuição.</p></details>
+            <details data-help-audience="teacher" data-help-search="disciplina não visualizar"><summary>Por que não consigo visualizar determinada disciplina?<b>＋</b></summary><p>Seu acesso mostra apenas as disciplinas vinculadas pela Gestão Escolar. Se a disciplina deveria estar disponível, peça à Gestão Escolar ou Administração para revisar sua atribuição.</p></details>
             <details data-help-audience="teacher" data-help-search="turma não aparece acesso"><summary>Por que não aparece uma turma no meu acesso?<b>＋</b></summary><p>A turma precisa estar ativa e vinculada à sua conta no ano letivo correto. A Gestão deve corrigir o vínculo em Professores.</p></details>
             <details data-help-audience="pedagogical" data-help-search="corrigir frequência incorreta"><summary>Como corrigir uma frequência registrada incorretamente?<b>＋</b></summary><p>Abra Frequência, selecione a mesma data e turma, corrija as situações dos alunos e salve novamente.</p></details>
             <details data-help-audience="pedagogical" data-help-search="agendas meses anteriores período"><summary>Onde encontro as agendas de meses anteriores?<b>＋</b></summary><p>Na página Agenda escolar, use o filtro de período ou a pesquisa por turma, conteúdo ou responsável.</p></details>
-            <details data-help-audience="admin" data-help-search="cadastrar novo professor"><summary>Como cadastrar um novo professor?<b>＋</b></summary><p>Acesse Professores, selecione Novo professor, informe as credenciais e a atribuição pedagógica e salve.</p></details>
-            <details data-help-audience="admin" data-help-search="alterar disciplinas professor"><summary>Como alterar as disciplinas destinadas a um professor?<b>＋</b></summary><p>Abra o cadastro do professor, atualize a etapa, turma ou disciplina e salve. Para múltiplas atribuições, mantenha cada vínculo configurado no ano letivo correspondente.</p></details>
-            <details data-help-audience="admin" data-help-search="registros outro ano letivo histórico"><summary>Como consultar registros de outro ano letivo?<b>＋</b></summary><p>Use as turmas e os filtros do ano desejado. O histórico preserva os vínculos anteriores mesmo após a progressão do aluno.</p></details>
+            <details data-help-audience="manager" data-help-search="cadastrar novo professor"><summary>Como cadastrar um novo professor?<b>＋</b></summary><p>Acesse Professores, selecione Novo professor, informe as credenciais e a atribuição pedagógica e salve.</p></details>
+            <details data-help-audience="manager" data-help-search="alterar disciplinas professor"><summary>Como alterar as disciplinas destinadas a um professor?<b>＋</b></summary><p>Abra o cadastro do professor, atualize a etapa, turma ou disciplina e salve. Para múltiplas atribuições, mantenha cada vínculo configurado no ano letivo correspondente.</p></details>
+            <details data-help-audience="manager" data-help-search="registros outro ano letivo histórico"><summary>Como consultar registros de outro ano letivo?<b>＋</b></summary><p>Use as turmas e os filtros do ano desejado. O histórico preserva os vínculos anteriores mesmo após a progressão do aluno.</p></details>
           </div>
         </section>
       </div>
@@ -328,13 +327,13 @@
       <div class="form-grid">
         <label>Nome completo<input id="userFullName" placeholder="Nome do usuário" required /></label>
         <label>USUÁRIO<input id="userLogin" placeholder="Ex.: ciencias6-2027" required /><small>Use um nome curto e fácil.</small></label>
-        <label>Perfil<select id="userRole" required><option>Coordenação</option><option>Professor</option><option>Administrador</option><option>Financeiro</option></select></label>
+        <label>Perfil<select id="userRole" required><option>Gestão Escolar</option><option>Professor</option><option>Administrador</option><option>Financeiro</option></select></label>
         <label>Status<select id="userStatus" required><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
         <label class="full hidden" id="userEmailWrap">E-MAIL DE RECUPERAÇÃO<input id="userEmail" type="email" maxlength="254" placeholder="usuario@escola.com.br" /><small id="userEmailHint">O endereço precisa ser individual e será validado por e-mail.</small><span class="email-status hidden" id="userEmailStatus"></span><button class="link-btn email-verification-action hidden" type="button" id="requestEmailVerification">Enviar nova verificação</button></label>
         <label>SENHA INICIAL<span class="password-generator"><input id="userPassword" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /><button class="secondary-btn" type="button" id="generateUserPassword">Gerar</button></span><small id="passwordHint">Obrigatória para novos usuários e trocada no primeiro acesso.</small></label>
         <label>CONFIRMAR SENHA<input id="userPasswordConfirm" type="password" minlength="8" placeholder="Repita a senha" /></label>
       </div>
-      <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Atribuições do professor</h3><p>Cada combinação de turma, disciplina e ano letivo é validada pelo servidor.</p></div></div><div id="teacherAssignmentList"></div><div class="form-grid"><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Turma e ano letivo<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><div class="head-actions"><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button><button class="secondary-btn hidden" type="button" id="addTeacherAssignment">＋ Adicionar outra atribuição</button></div></section>
+      <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Atribuições do professor</h3><p>Cada turma, disciplina e ano letivo possui uma permissão independente e validada no servidor.</p></div></div><div class="teacher-assignment-list" id="teacherAssignmentList"></div><div class="assignment-editor-label" id="assignmentEditorLabel">Primeira atribuição obrigatória</div><div class="form-grid"><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Turma e ano letivo<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><div class="head-actions"><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button><button class="secondary-btn hidden" type="button" id="addTeacherAssignment">＋ Adicionar esta atribuição</button></div></section>
       <p class="login-error hidden" id="userFormError" role="alert"></p>
       <div class="modal-actions user-modal-actions"><button class="danger-btn hidden" type="button" id="deleteUserBtn">Remover usuário</button><button class="secondary-btn hidden" type="button" id="resetUserPassword">Redefinir senha</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar usuário</button></div>
     </form>
@@ -393,7 +392,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261115-email-relatorios"></script>
+  <script src="./app.js?v=20261116-permissoes"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
@@ -401,8 +400,8 @@
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./library.js?v=20261103-vercel-api-routes"></script>
   <script src="./reports.js?v=20261115-tres-niveis"></script>
-  <script src="./progressions.js?v=20261103-progressions"></script>
+  <script src="./progressions.js?v=20261116-permissoes"></script>
   <script src="./agenda-status.js?v=20261103-agenda-flexible"></script>
-  <script src="./help.js?v=20261115-central-ajuda"></script>
+  <script src="./help.js?v=20261116-permissoes"></script>
 </body>
 </html>

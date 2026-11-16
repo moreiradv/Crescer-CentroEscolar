@@ -3,8 +3,8 @@ import pg from 'pg';
 const { Pool } = pg;
 const OLD_API = 'https://crescer-gestao-escolar.davi-gonzaga1.chatgpt.site';
 const PUBLIC_ORIGIN = 'https://crescer-escola-web.vercel.app';
-const MANAGER_ROLES = new Set(['Administrador', 'Coordenação']);
-const PEDAGOGICAL_ROLES = new Set(['Administrador', 'Coordenação', 'Professor']);
+const MANAGER_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar']);
+const PEDAGOGICAL_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar', 'Professor']);
 
 let pool;
 let schemaPromise;
@@ -157,27 +157,33 @@ function decorateAgenda(row, context) {
   };
 }
 
-async function allAgendas(req, context) {
+async function allAgendas(req, context, user) {
   const [oldResponse, localResult] = await Promise.all([
     upstream(req, '/api/agendas', { method: 'GET', copyQuery: false }),
     ensureSchema().then(db => db.query('SELECT * FROM crescer_agendas ORDER BY agenda_date DESC, id DESC')),
   ]);
   if (oldResponse.status === 401 || oldResponse.status === 403) throw Object.assign(new Error(oldResponse.data.error || 'Acesso negado.'), { status: oldResponse.status });
   const oldRows = oldResponse.status === 200 ? oldResponse.data.agendas || [] : [];
-  const localRows = localResult.rows.map(row => decorateAgenda(row, context));
+  let localRows = localResult.rows.map(row => decorateAgenda(row, context));
+  if (user.role === 'Professor') {
+    const assignment = user.assignment;
+    if (!assignment) localRows = [];
+    else localRows = localRows.filter(row => Number(row.class_id) === Number(assignment.class_id) && (!assignment.subject_id || Number(row.subject_id) === Number(assignment.subject_id)));
+  }
   return [...localRows, ...oldRows].sort((a, b) => String(b.agenda_date).localeCompare(String(a.agenda_date)) || Number(b.updated_at || 0) - Number(a.updated_at || 0));
 }
 
 async function handleAgendas(req, res, path) {
   const user = await requireUser(req, PEDAGOGICAL_ROLES);
   const context = await academicContext(req);
-  if (path === '/api/agendas' && req.method === 'GET') return json(res, 200, { agendas: await allAgendas(req, context) });
+  if (path === '/api/agendas' && req.method === 'GET') return json(res, 200, { agendas: await allAgendas(req, context, user) });
 
   if (path === '/api/agenda-status' && req.method === 'GET') {
     const date = String(req.query.date || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(res, 400, { error: 'Informe uma data válida.' });
-    const agendas = (await allAgendas(req, context)).filter(item => item.agenda_date === date);
-    const statuses = context.classes.filter(item => item.status !== 'inactive').map(klass => {
+    const agendas = (await allAgendas(req, context, user)).filter(item => item.agenda_date === date);
+    const visibleClasses = context.classes.filter(item => item.status !== 'inactive' && (user.role !== 'Professor' || Number(item.id) === Number(user.assignment?.class_id || 0)));
+    const statuses = visibleClasses.map(klass => {
       const rows = agendas.filter(item => Number(item.class_id) === Number(klass.id));
       const withAgenda = rows.some(item => !Number(item.no_agenda));
       const noAgenda = rows.some(item => Number(item.no_agenda));
@@ -193,6 +199,13 @@ async function handleAgendas(req, res, path) {
   const db = await ensureSchema();
   const localId = match ? Math.abs(Number(match[1])) : 0;
   if (req.method === 'DELETE') {
+    const existing = await db.query('SELECT class_id,subject_id FROM crescer_agendas WHERE id=$1', [localId]);
+    if (!existing.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
+    if (user.role === 'Professor') {
+      const assignment = user.assignment, row = existing.rows[0];
+      if (!assignment || Number(row.class_id) !== Number(assignment.class_id) || (assignment.subject_id && Number(row.subject_id) !== Number(assignment.subject_id))) return json(res, 403, { error: 'Sua conta não possui acesso a este registro.' });
+      if (!assignment.can_agenda) return json(res, 403, { error: 'A Agenda Escolar não está habilitada para esta atribuição.' });
+    }
     await db.query('DELETE FROM crescer_agendas WHERE id = $1', [localId]);
     return json(res, 200, { ok: true });
   }
@@ -205,8 +218,13 @@ async function handleAgendas(req, res, path) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(agendaDate) || !classId) return json(res, 400, { error: 'Informe a data e a turma.' });
   const klass = context.classes.find(item => Number(item.id) === classId);
   if (!klass) return json(res, 400, { error: 'Turma não encontrada.' });
+  if (user.role === 'Professor') {
+    const assignment = user.assignment;
+    if (!assignment || Number(assignment.class_id) !== classId || !assignment.can_agenda) return json(res, 403, { error: 'Sua conta não possui acesso a esta turma ou à Agenda Escolar.' });
+    if (assignment.subject_id && Number(assignment.subject_id) !== Number(subjectId || 0)) return json(res, 403, { error: 'Sua conta não possui acesso a esta disciplina.' });
+  }
 
-  const existing = (await allAgendas(req, context)).filter(item => item.agenda_date === agendaDate && Number(item.class_id) === classId && Number(item.id) !== -localId);
+  const existing = (await allAgendas(req, context, user)).filter(item => item.agenda_date === agendaDate && Number(item.class_id) === classId && Number(item.id) !== -localId);
   if (noAgenda && existing.length) return json(res, 409, { error: 'Já existe uma agenda registrada para esta turma e data.' });
   if (!noAgenda && existing.some(item => Number(item.no_agenda))) return json(res, 409, { error: 'Esta turma e data estão marcadas como “Não tem agenda”. Edite o registro existente.' });
   if (!noAgenda && existing.some(item => (Number(item.subject_id) || 0) === (subjectId || 0))) return json(res, 409, { error: subjectId ? 'Já existe uma agenda desta disciplina para a turma e data.' : 'Já existe uma agenda geral para a turma e data.' });
@@ -241,7 +259,7 @@ async function handleLibrary(req, res, path) {
     const result = await db.query('SELECT * FROM crescer_library_books WHERE id=$1', [Number(match[1])]);
     return result.rowCount ? json(res, 200, { book: bookResponse(result.rows[0]) }) : json(res, 404, { error: 'Livro não encontrado.' });
   }
-  if (!MANAGER_ROLES.has(user.role)) return json(res, 403, { error: 'Somente Administração e Coordenação podem alterar a Biblioteca.' });
+  if (!MANAGER_ROLES.has(user.role)) return json(res, 403, { error: 'Somente Administração e Gestão Escolar podem alterar a Biblioteca.' });
   if (match && req.method === 'DELETE') {
     await db.query('DELETE FROM crescer_library_books WHERE id=$1', [Number(match[1])]);
     return json(res, 200, { ok: true });

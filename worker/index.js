@@ -21,9 +21,9 @@ const ALLOWED_EXTERNAL_ORIGINS = new Set([
   "https://crescer-escola-web.vercel.app",
 ]);
 const ALLOWED_ROLES = new Set(["Coordenação", "Financeiro", "Administrador", "Professor"]);
-const MANAGER_ROLES = new Set(["Administrador", "Coordenação"]);
-const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Professor"]);
-const ENROLLMENT_ROLES = new Set(["Administrador", "Coordenação", "Financeiro"]);
+const MANAGER_ROLES = new Set(["Administrador", "Coordenação", "Gestão Escolar"]);
+const PEDAGOGICAL_ROLES = new Set(["Administrador", "Coordenação", "Gestão Escolar", "Professor"]);
+const ENROLLMENT_ROLES = new Set(["Administrador", "Coordenação", "Gestão Escolar", "Financeiro"]);
 const ALLOWED_ATTENDANCE = new Set(["present", "late", "justified", "absent"]);
 const ALLOWED_SHIFTS = new Set(["Matutino", "Vespertino", "Integral", "Noturno"]);
 
@@ -31,8 +31,11 @@ function normalizeUsername(value) {
   return String(value || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").toLowerCase();
 }
 
+const internalRole = role => role === "Gestão Escolar" ? "Coordenação" : role;
+const displayRole = role => role === "Coordenação" ? "Gestão Escolar" : role;
+
 function safeUser(row) {
-  return { id: row.id, username: row.username, name: row.name, role: row.role, initials: row.initials, status: row.status, email: row.email || null, pendingEmail: row.pending_email || null, emailVerified: !!row.email_verified_at, emailVerifiedAt: row.email_verified_at || null, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignments: row.assignments || [], assignment: row.assignment || null };
+  return { id: row.id, username: row.username, name: row.name, role: displayRole(row.role), initials: row.initials, status: row.status, email: row.email || null, pendingEmail: row.pending_email || null, emailVerified: !!row.email_verified_at, emailVerifiedAt: row.email_verified_at || null, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignments: row.assignments || [], assignment: row.assignment || null };
 }
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -108,7 +111,7 @@ function parseCookies(request) {
 function bootstrapUsers(env) {
   try {
     const parsed = JSON.parse(env.BOOTSTRAP_USERS_JSON || "{}");
-    return Array.isArray(parsed.users) ? parsed.users.filter(user => user.username && user.passwordHash && user.salt && ALLOWED_ROLES.has(user.role)) : [];
+    return Array.isArray(parsed.users) ? parsed.users.map(user => ({ ...user, role: internalRole(user.role) })).filter(user => user.username && user.passwordHash && user.salt && ALLOWED_ROLES.has(user.role)) : [];
   } catch {
     return [];
   }
@@ -163,7 +166,7 @@ function teacherScopeViolation(user, classId, subjectId = null, capability = "ag
   if (Number(assignment.school_year) !== Number(user.requestedSchoolYear || assignment.school_year)) return "Sua conta não possui acesso a este ano letivo.";
   if (capability === "agenda" && !assignment.can_agenda) return "A Agenda Escolar não está habilitada para esta conta.";
   if (capability === "attendance" && !assignment.can_attendance) return "A frequência não está habilitada para esta conta.";
-  if (assignment.subject_id && subjectId && Number(assignment.subject_id) !== Number(subjectId)) return "Sua conta não possui acesso a esta disciplina.";
+  if (assignment.subject_id && Number(assignment.subject_id) !== Number(subjectId || 0)) return "Sua conta não possui acesso a esta disciplina.";
   return null;
 }
 
@@ -191,7 +194,7 @@ async function requireManager(request, db) {
   const user = await getSession(request, db);
   if (!user) return { error: json({ error: "Sua sessão expirou. Entre novamente." }, 401) };
   const passwordBlock = passwordChangeRequired(user); if (passwordBlock) return passwordBlock;
-  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas Administração e Coordenação podem realizar esta ação." }, 403) };
+  if (!MANAGER_ROLES.has(user.role)) return { error: json({ error: "Apenas Administração e Gestão Escolar podem realizar esta ação." }, 403) };
   return { user };
 }
 
@@ -388,7 +391,7 @@ async function handleLibraryApi(request, env, path) {
 
   if (path === "/api/library-books" && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
-    if (!MANAGER_ROLES.has(auth.user.role)) return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
+    if (!MANAGER_ROLES.has(auth.user.role) && auth.user.role !== "Professor") return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
     const search = String(new URL(request.url).searchParams.get("search") || "").trim();
     const result = search
       ? await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.title LIKE ? OR COALESCE(b.author, '') LIKE ? ORDER BY b.title LIMIT 500`).bind(`%${search}%`, `%${search}%`).all()
@@ -399,7 +402,7 @@ async function handleLibraryApi(request, env, path) {
   const bookMatch = path.match(/^\/api\/library-books\/(\d+)$/);
   if (bookMatch && request.method === "GET") {
     const auth = await requireUser(request, db); if (auth.error) return auth.error;
-    if (!MANAGER_ROLES.has(auth.user.role)) return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
+    if (!MANAGER_ROLES.has(auth.user.role) && auth.user.role !== "Professor") return json({ error: "Seu perfil não possui acesso à Biblioteca." }, 403);
     const book = await db.prepare(`SELECT b.*, creator.name AS created_by_name, updater.name AS updated_by_name FROM library_books b LEFT JOIN users creator ON creator.id = b.created_by LEFT JOIN users updater ON updater.id = b.updated_by WHERE b.id = ?`).bind(Number(bookMatch[1])).first();
     return book ? json({ book }) : json({ error: "Livro não encontrado." }, 404);
   }
@@ -893,7 +896,7 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/progressions" && request.method === "GET") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     await Promise.all([ensureAcademicData(db, auth.user.id), ensureDefaultGrades(db, auth.user.id)]);
     const [ruleResult, studentResult, classResult, historyResult] = await db.batch([
       db.prepare(`SELECT * FROM progression_rules ORDER BY id`),
@@ -913,20 +916,20 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/progression-rules" && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error; const body = await readJson(request); const fromGrade = String(body.fromGrade || "").trim(); const toGrade = String(body.toGrade || "").trim(); const now = Date.now();
+    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request); const fromGrade = String(body.fromGrade || "").trim(); const toGrade = String(body.toGrade || "").trim(); const now = Date.now();
     if (fromGrade.length < 2 || toGrade.length < 2 || gradeKey(fromGrade) === gradeKey(toGrade)) return json({ error: "Informe séries de origem e destino diferentes." }, 400);
     try { const result = await db.prepare(`INSERT INTO progression_rules (from_grade, to_grade, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).bind(fromGrade, toGrade, body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run(); await audit(db, auth.user.id, "progression_rule_created", result.meta.last_row_id, `${fromGrade} → ${toGrade}`); return json({ ok: true, id: result.meta.last_row_id }, 201); } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Já existe uma regra para esta série de origem." }, 409); throw error; }
   }
 
   const progressionRuleMatch = path.match(/^\/api\/progression-rules\/(\d+)$/);
   if (progressionRuleMatch && request.method === "PUT") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error; const body = await readJson(request); const fromGrade = String(body.fromGrade || "").trim(); const toGrade = String(body.toGrade || "").trim();
+    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request); const fromGrade = String(body.fromGrade || "").trim(); const toGrade = String(body.toGrade || "").trim();
     if (fromGrade.length < 2 || toGrade.length < 2 || gradeKey(fromGrade) === gradeKey(toGrade)) return json({ error: "Informe séries de origem e destino diferentes." }, 400);
     try { const result = await db.prepare(`UPDATE progression_rules SET from_grade = ?, to_grade = ?, status = ?, updated_at = ? WHERE id = ?`).bind(fromGrade, toGrade, body.status === "inactive" ? "inactive" : "active", Date.now(), Number(progressionRuleMatch[1])).run(); if (!result.meta.changes) return json({ error: "Regra não encontrada." }, 404); await audit(db, auth.user.id, "progression_rule_updated", Number(progressionRuleMatch[1]), `${fromGrade} → ${toGrade}`); return json({ ok: true }); } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Já existe uma regra para esta série de origem." }, 409); throw error; }
   }
 
   if (path === "/api/progressions/confirm" && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error; const body = await readJson(request); const result = await confirmProgression(db, auth.user, Number(body.studentId), Number(body.classId), String(body.resultStatus || "completed"), String(body.notes || ""));
+    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request); const result = await confirmProgression(db, auth.user, Number(body.studentId), Number(body.classId), String(body.resultStatus || "completed"), String(body.notes || ""));
     return result.error ? json({ error: result.error }, result.status) : json(result);
   }
 
@@ -1058,7 +1061,7 @@ async function handleApi(request, env, path) {
 
   const studentPromoteMatch = path.match(/^\/api\/students\/(\d+)\/promote$/);
   if (studentPromoteMatch && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const id = Number(studentPromoteMatch[1]); const body = await readJson(request); const result = await confirmProgression(db, auth.user, id, Number(body.classId), String(body.resultStatus || "completed"), String(body.notes || ""));
     return result.error ? json({ error: result.error }, result.status) : json(result);
   }
@@ -1066,8 +1069,13 @@ async function handleApi(request, env, path) {
   if (path === "/api/agenda-status" && request.method === "GET") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error; const date = String(new URL(request.url).searchParams.get("date") || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "Informe uma data válida." }, 400);
-    const classFilter = auth.user.role === "Professor" ? "WHERE c.id = ? AND c.status = 'active'" : "WHERE c.status = 'active'";
-    const result = await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? LEFT JOIN users u ON u.id = a.created_by ${classFilter} GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(...(auth.user.role === "Professor" ? [date, auth.user.assignment?.class_id || 0] : [date])).all();
+    const assignment = auth.user.role === "Professor" ? auth.user.assignment : null;
+    if (auth.user.role === "Professor" && !assignment) return json({ date, statuses: [] });
+    const result = assignment?.subject_id
+      ? await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? AND a.subject_id = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.id = ? AND c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date, assignment.subject_id, assignment.class_id).all()
+      : assignment
+        ? await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.id = ? AND c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date, assignment.class_id).all()
+        : await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date).all();
     const statuses = result.results.map(row => ({ ...row, record_count: Number(row.record_count || 0), status: Number(row.agenda_count || 0) > 0 ? "with_agenda" : Number(row.no_agenda_count || 0) > 0 ? "no_agenda" : "no_record" }));
     return json({ date, statuses });
   }
@@ -1076,7 +1084,7 @@ async function handleApi(request, env, path) {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const base = `SELECT a.*, c.name AS class_name, u.name AS created_by_name, sub.name AS current_subject_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by LEFT JOIN subjects sub ON sub.id = a.subject_id`;
     const result = auth.user.role !== "Professor" ? await db.prepare(`${base} ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).all()
-      : auth.user.assignment?.education_stage === "Ensino Fundamental" ? await db.prepare(`${base} WHERE a.class_id = ? AND (a.subject_id = ? OR a.subject_id IS NULL) ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment.class_id, auth.user.assignment.subject_id).all()
+      : auth.user.assignment?.education_stage === "Ensino Fundamental" ? await db.prepare(`${base} WHERE a.class_id = ? AND a.subject_id = ? ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment.class_id, auth.user.assignment.subject_id).all()
       : await db.prepare(`${base} WHERE a.class_id = ? ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment?.class_id || 0).all();
     return json({ agendas: result.results.map(row => ({ ...row, materials: JSON.parse(row.materials || "[]") })) });
   }
@@ -1151,13 +1159,12 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/indicators" && request.method === "GET") {
-    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const params = new URL(request.url).searchParams;
     const from = String(params.get("from") || ""); const to = String(params.get("to") || "");
     const requestedClassId = Number(params.get("class_id") || 0); const requestedSubjectId = Number(params.get("subject_id") || 0); const requestedYear = Number(params.get("school_year") || 0);
     if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) || (from && to && from > to)) return json({ error: "O período informado é inválido." }, 400);
-    const assignment = auth.user.role === "Professor" ? auth.user.assignment : null;
-    if (auth.user.role === "Professor" && !assignment) return json({ error: "Sua conta de professor ainda não possui uma turma ativa vinculada." }, 403);
+    const assignment = null;
     const classId = assignment ? Number(assignment.class_id) : requestedClassId;
     const subjectId = assignment ? Number(assignment.subject_id || 0) : requestedSubjectId;
     const schoolYear = assignment ? Number(assignment.school_year) : requestedYear;
@@ -1206,7 +1213,7 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/audit" && request.method === "GET") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const result = await db.prepare(`SELECT a.id, a.action, a.details, a.created_at, u.name AS actor_name, u.initials AS actor_initials FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.created_at DESC LIMIT 300`).all();
     return json({ entries: result.results });
   }
@@ -1224,25 +1231,27 @@ async function handleApi(request, env, path) {
   }
 
   if (path === "/api/users" && request.method === "GET") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const result = await db.prepare(`SELECT id, username, name, role, initials, status, email, pending_email, email_verified_at, must_change_password, created_at, updated_at FROM users ORDER BY CASE role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, name`).all();
     const assignments = await db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY ta.school_year DESC, c.name, s.name`).all();
-    return json({ users: result.results.map(user => { const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id)); return { ...user, assignments: links, ...(links[0] || {}) }; }) });
+    return json({ users: result.results.map(user => { const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id)); return { ...user, role: displayRole(user.role), assignments: links, ...(links.find(item => item.status === "active") || links[0] || {}) }; }) });
   }
 
   if (path === "/api/users" && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const body = await readJson(request);
     const name = String(body.name || "").trim();
     const username = String(body.username || "").trim();
-    const role = String(body.role || "");
+    const role = internalRole(String(body.role || ""));
     const password = String(body.password || "");
     const confirmPassword = String(body.confirmPassword || "");
     const email = normalizeEmail(body.email);
+    const emailEnabled = Boolean(env.RESEND_API_KEY && env.EMAIL_FROM);
     if (name.length < 3 || username.length < 3 || password.length < 8 || !ALLOWED_ROLES.has(role)) return json({ error: "Preencha nome, usuário, perfil e uma senha com pelo menos 8 caracteres." }, 400);
     if (password !== confirmPassword) return json({ error: "As senhas não coincidem." }, 400);
-    if (!validEmail(email)) return json({ error: "Informe um e-mail individual válido para o novo usuário." }, 400);
-    if (await emailInUse(db, email)) return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
+    if (emailEnabled && !validEmail(email)) return json({ error: "Informe um e-mail individual válido para o novo usuário." }, 400);
+    if (email && !validEmail(email)) return json({ error: "Informe um endereço de e-mail válido." }, 400);
+    if (email && await emailInUse(db, email)) return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
     let assignment = null; if (role === "Professor") { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
     const salt = randomHex(16); const passwordHash = await hashPassword(password, salt); const now = Date.now();
     try {
@@ -1250,10 +1259,12 @@ async function handleApi(request, env, path) {
         .bind(username, normalizeUsername(username), name, role, initialsFor(name), passwordHash, salt, body.status === "inactive" ? "inactive" : "active", now, now).run();
       if (role === "Professor") await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(result.meta.last_row_id, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run();
-      try { await requestEmailVerification(db, env, { userId: result.meta.last_row_id, email, actorId: auth.user.id, username }); }
-      catch (error) { await db.prepare(`DELETE FROM users WHERE id = ?`).bind(result.meta.last_row_id).run(); throw error; }
+      if (email) {
+        try { await requestEmailVerification(db, env, { userId: result.meta.last_row_id, email, actorId: auth.user.id, username }); }
+        catch (error) { await db.prepare(`DELETE FROM users WHERE id = ?`).bind(result.meta.last_row_id).run(); throw error; }
+      }
       await audit(db, auth.user.id, "user_created", result.meta.last_row_id, username);
-      return json({ ok: true, id: result.meta.last_row_id, username, emailStatus: "pending", mustChangePassword: true }, 201);
+      return json({ ok: true, id: result.meta.last_row_id, username, emailStatus: email ? "pending" : "missing", mustChangePassword: true }, 201);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Esse nome de usuário já está em uso." }, 409);
       throw error;
@@ -1263,7 +1274,7 @@ async function handleApi(request, env, path) {
   const userMatch = path.match(/^\/api\/users\/(\d+)$/);
   const userEmailVerificationMatch = path.match(/^\/api\/users\/(\d+)\/email-verification$/);
   if (userEmailVerificationMatch && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const targetId = Number(userEmailVerificationMatch[1]), body = await readJson(request), existing = await db.prepare(`SELECT id, username, email, pending_email FROM users WHERE id = ?`).bind(targetId).first();
     if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     const email = normalizeEmail(body.email || existing.pending_email || existing.email);
@@ -1273,7 +1284,7 @@ async function handleApi(request, env, path) {
   }
   const assignmentCollectionMatch = path.match(/^\/api\/users\/(\d+)\/assignments$/);
   if (assignmentCollectionMatch && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const userId = Number(assignmentCollectionMatch[1]); const body = await readJson(request); const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
     const teacher = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'Professor'`).bind(userId).first(); if (!teacher) return json({ error: "Professor não encontrado." }, 404);
     try { const now = Date.now(); const result = await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).bind(userId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, auth.user.id, now, now).run(); await audit(db, auth.user.id, "teacher_assignment_created", userId, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id: result.meta.last_row_id }, 201); } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Esta atribuição já está cadastrada para o professor." }, 409); throw error; }
@@ -1281,16 +1292,17 @@ async function handleApi(request, env, path) {
 
   const assignmentMatch = path.match(/^\/api\/teacher-assignments\/(\d+)$/);
   if (assignmentMatch && request.method === "PUT") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error; const body = await readJson(request); const status = body.status === "inactive" ? "inactive" : "active"; const result = await db.prepare(`UPDATE teacher_assignments SET status = ?, updated_at = ? WHERE id = ?`).bind(status, Date.now(), Number(assignmentMatch[1])).run(); if (!result.meta.changes) return json({ error: "Atribuição não encontrada." }, 404); await audit(db, auth.user.id, "teacher_assignment_status", Number(assignmentMatch[1]), status); return json({ ok: true });
+    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request); const status = body.status === "inactive" ? "inactive" : "active"; const result = await db.prepare(`UPDATE teacher_assignments SET status = ?, updated_at = ? WHERE id = ?`).bind(status, Date.now(), Number(assignmentMatch[1])).run(); if (!result.meta.changes) return json({ error: "Atribuição não encontrada." }, 404); await audit(db, auth.user.id, "teacher_assignment_status", Number(assignmentMatch[1]), status); return json({ ok: true });
   }
 
   if (userMatch && request.method === "PUT") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const targetId = Number(userMatch[1]); const existing = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetId).first();
     if (!existing) return json({ error: "Usuário não encontrado." }, 404);
-    const body = await readJson(request); const name = String(body.name || "").trim(); const username = String(body.username || "").trim(); const role = String(body.role || ""); const status = body.status === "inactive" ? "inactive" : "active";
+    const body = await readJson(request); const name = String(body.name || "").trim(); const username = String(body.username || "").trim(); const role = internalRole(String(body.role || "")); const status = body.status === "inactive" ? "inactive" : "active";
     if (name.length < 3 || username.length < 3 || !ALLOWED_ROLES.has(role)) return json({ error: "Preencha nome, usuário e perfil corretamente." }, 400);
-    let assignment = null; if (role === "Professor") { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
+    const existingAssignmentCount = role === "Professor" ? await db.prepare(`SELECT COUNT(*) AS total FROM teacher_assignments WHERE user_id = ?`).bind(targetId).first() : { total: 0 };
+    let assignment = null; if (role === "Professor" && (!Number(existingAssignmentCount.total) || body.updatePrimaryAssignment === true)) { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
     if (existing.role === "Administrador" && (role !== "Administrador" || status !== "active")) {
       const count = await db.prepare(`SELECT COUNT(*) AS total FROM users WHERE role = 'Administrador' AND status = 'active'`).first();
       if (count.total <= 1) return json({ error: "O sistema precisa manter pelo menos um administrador ativo." }, 400);
@@ -1305,12 +1317,12 @@ async function handleApi(request, env, path) {
         await db.prepare(`UPDATE users SET username = ?, username_key = ?, name = ?, role = ?, initials = ?, status = ?, updated_at = ? WHERE id = ?`)
           .bind(username, normalizeUsername(username), name, role, initialsFor(name), status, Date.now(), targetId).run();
       }
-      if (role === "Professor") {
+      if (role === "Professor" && assignment) {
         const existingAssignment = await db.prepare(`SELECT id FROM teacher_assignments WHERE user_id = ? ORDER BY id LIMIT 1`).bind(targetId).first();
         if (existingAssignment) await db.prepare(`UPDATE teacher_assignments SET education_stage = ?, class_id = ?, subject_id = ?, school_year = ?, can_attendance = ?, can_agenda = ?, status = ?, updated_at = ? WHERE id = ?`).bind(assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, status, Date.now(), existingAssignment.id).run();
         else await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(targetId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, status, auth.user.id, Date.now(), Date.now()).run();
       }
-      else await db.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`).bind(targetId).run();
+      else if (role !== "Professor") await db.prepare(`UPDATE teacher_assignments SET status = 'inactive', updated_at = ? WHERE user_id = ? AND status = 'active'`).bind(Date.now(), targetId).run();
       if (status === "inactive" || role === "Professor" || body.password) await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(targetId).run();
       await audit(db, auth.user.id, "user_updated", targetId, username); return json({ ok: true });
     } catch (error) {
@@ -1321,7 +1333,7 @@ async function handleApi(request, env, path) {
 
   const resetPasswordMatch = path.match(/^\/api\/users\/(\d+)\/reset-password$/);
   if (resetPasswordMatch && request.method === "POST") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const targetId = Number(resetPasswordMatch[1]); const existing = await db.prepare(`SELECT username, name FROM users WHERE id = ?`).bind(targetId).first(); if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     const password = temporaryPassword(); const salt = randomHex(16); const passwordHash = await hashPassword(password, salt); const now = Date.now();
     await db.batch([
@@ -1333,7 +1345,7 @@ async function handleApi(request, env, path) {
   }
 
   if (userMatch && request.method === "DELETE") {
-    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const targetId = Number(userMatch[1]); if (targetId === auth.user.id) return json({ error: "Você não pode remover o usuário que está usando agora." }, 400);
     const existing = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetId).first(); if (!existing) return json({ error: "Usuário não encontrado." }, 404);
     if (existing.role === "Administrador" && existing.status === "active") {
