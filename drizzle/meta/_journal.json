@@ -71,6 +71,13 @@
       "when": 1793750400000,
       "tag": "0009_add_progression_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794787200000,
+      "tag": "0010_add_user_email_recovery",
+      "breakpoints": true
     }
   ]
 }

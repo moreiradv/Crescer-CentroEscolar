@@ -9,14 +9,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261115-central-ajuda" />
+  <link rel="stylesheet" href="./styles.css?v=20261115-email-relatorios" />
 </head>
 <body>
-  <div class="educlass-watermark" aria-hidden="true">
-    <strong>EDUCLASS</strong>
-    <span>Produzido por Ana Heloísa e Júlia Vitória — Estagiárias 2026.</span>
-  </div>
-
   <div class="login-screen" id="loginScreen">
     <section class="login-brand">
       <div class="brand-orbit brand-orbit-one"></div>
@@ -48,10 +43,10 @@
           <span class="input-wrap"><span class="input-icon">●</span><input id="password" type="password" placeholder="Digite sua senha" autocomplete="current-password" required /><button class="eye-btn" type="button" id="togglePassword" aria-label="Mostrar senha">ver</button></span>
         </label>
         <p class="login-error hidden" id="loginError" role="alert">Usuário ou senha incorretos. Verifique os dados e tente novamente.</p>
-        <div class="login-options"><label class="checkline"><input type="checkbox" checked /> Lembrar acesso</label><button class="link-btn" type="button">Esqueci a senha</button></div>
+        <div class="login-options"><label class="checkline"><input type="checkbox" checked /> Lembrar acesso</label><button class="link-btn" type="button" id="forgotPasswordBtn">Esqueci a senha</button></div>
         <button class="primary-btn login-btn" type="submit">Entrar no painel <span>→</span></button>
         <div class="demo-note"><span>i</span><p><strong>Acesso protegido</strong>Utilize as credenciais fornecidas pela administração da escola.</p></div>
-        <p class="copyright">© 2026 Centro Educacional Crescer</p>
+        <p class="educlass-login-credit"><strong>EDUCLASS</strong><span>Produzido por Ana Heloísa e Júlia Vitória — Estagiárias 2026.</span></p>
       </form>
     </section>
   </div>
@@ -166,7 +161,9 @@
 
       <div class="page" id="page-indicadores">
         <section class="page-head"><div><p class="eyebrow">Dados para decidir</p><h1>Indicadores</h1><p>Analise dados reais de frequência da escola, das turmas e dos alunos.</p></div><button class="hidden" id="indicatorExportBtn" aria-hidden="true">Exportar</button></section>
-        <section class="panel report-toolbar hidden"><div class="filters-row"><label>Data inicial<input type="date" id="reportStartDate" /></label><label>Data final<input type="date" id="reportEndDate" /></label><label>Turma<select id="reportClassFilter"><option value="">Todas as turmas</option></select></label><label>Disciplina<select id="reportSubjectFilter"><option value="">Todas as disciplinas</option></select></label><label>Ano letivo<select id="reportYearFilter"><option value="">Todos os anos</option></select></label><label>Indicador<select id="reportIndicatorFilter"><option value="frequency">Frequência escolar</option></select></label></div><div class="report-export-actions"><button class="secondary-btn" data-report-format="pdf">PDF</button><button class="secondary-btn" data-report-format="docx">Word</button><button class="secondary-btn" data-report-format="xlsx">Excel</button><button class="primary-btn" data-report-format="pptx">PowerPoint</button></div></section>
+        <section class="report-levels" aria-label="Níveis de relatório"><button class="active" data-report-level="institutional"><span>1</span><strong>Institucional</strong><small>Visão geral da escola</small></button><button data-report-level="class"><span>2</span><strong>Por turma</strong><small>Resultados da turma</small></button><button data-report-level="student"><span>3</span><strong>Individual</strong><small>Histórico do aluno</small></button></section>
+        <section class="panel report-toolbar hidden"><div class="filters-row"><label>Data inicial<input type="date" id="reportStartDate" /></label><label>Data final<input type="date" id="reportEndDate" /></label><label>Turma<select id="reportClassFilter"><option value="">Todas as turmas</option></select></label><label class="hidden" id="reportStudentFilterWrap">Aluno<select id="reportStudentFilter"><option value="">Selecione o aluno</option></select></label><label>Disciplina<select id="reportSubjectFilter"><option value="">Todas as disciplinas</option></select></label><label>Ano letivo<select id="reportYearFilter"><option value="">Todos os anos</option></select></label><label>Indicador<select id="reportIndicatorFilter"><option value="frequency">Frequência escolar</option></select></label></div><div class="report-export-actions"><button class="secondary-btn report-preview-btn" id="previewReportBtn">Visualizar</button><button class="secondary-btn" data-report-format="pdf">PDF</button><button class="secondary-btn" data-report-format="docx">Word</button><button class="secondary-btn" data-report-format="xlsx">Excel</button><button class="primary-btn" data-report-format="pptx">PowerPoint</button></div></section>
+        <section class="panel report-level-preview hidden" id="reportLevelPreview"><div class="table-head"><div><h2 id="reportPreviewTitle">Relatório institucional</h2><p id="reportPreviewMeta">Selecione os filtros e visualize os dados reais.</p></div><span class="live-badge">Base única de frequência</span></div><div id="reportPreviewContent"></div></section>
         <section class="insight-hero"><div><span class="soft-label">Resumo em tempo real</span><h2 id="indicatorHeadline">Comece lançando a frequência.</h2><p id="indicatorDescription">Os indicadores serão calculados automaticamente com os registros salvos.</p></div><div class="hero-score"><strong id="indicatorScore">0%</strong><span>índice geral</span><b id="indicatorTotal">0 registros</b></div></section>
         <section class="indicator-grid"><article class="panel"><div class="panel-head"><div><h2>Frequência por turma</h2><p>Ranking de todos os registros</p></div></div><div class="rank-list" id="classRanking"><p class="empty-state">Nenhuma frequência registrada.</p></div></article><article class="panel"><div class="panel-head"><div><h2>Distribuição do período</h2><p id="distributionTotal">0 registros processados</p></div></div><div class="distribution"><div class="big-donut" id="indicatorDonut"></div><div><p><i class="present"></i><span>Presentes</span><strong id="distPresent">0</strong></p><p><i class="late"></i><span>Atrasados</span><strong id="distLate">0</strong></p><p><i class="justified"></i><span>Justificados</span><strong id="distJustified">0</strong></p><p><i class="absent"></i><span>Não presentes</span><strong id="distAbsent">0</strong></p></div></div></article></section>
         <section class="panel risk-panel"><div class="panel-head"><div><h2>Alunos que pedem atenção</h2><p>Frequência abaixo de 85% em todos os registros</p></div></div><div class="risk-grid" id="riskStudents"><p class="empty-state">Nenhum aluno abaixo do índice de atenção.</p></div></section>
@@ -221,7 +218,7 @@
           <div class="help-grid" id="helpGuides">
             <details class="help-card panel" data-help-audience="all" data-help-search="acesso entrar login usuário senha recuperar redefinir sair conta erro">
               <summary><span class="help-card-icon blue">→</span><span><strong>Acesso ao sistema</strong><small>Login, senha e saída segura</small></span><b>⌄</b></summary>
-              <div class="help-card-body"><h3>Como entrar</h3><ol><li>Informe o usuário e a senha fornecidos pela Administração.</li><li>Selecione <b>Entrar no painel</b>.</li><li>No primeiro acesso, crie uma senha pessoal quando o sistema solicitar.</li></ol><h3>Senha e segurança</h3><p>A recuperação automática por e-mail ainda não está disponível. Se não conseguir entrar, peça à Administração para abrir <b>Usuários</b> ou <b>Professores</b> e usar <b>Redefinir senha</b>. Para sair com segurança, use o ícone de saída ao lado do seu nome no menu lateral.</p></div>
+              <div class="help-card-body"><h3>Como entrar</h3><ol><li>Informe o usuário e a senha fornecidos pela Administração.</li><li>Selecione <b>Entrar no painel</b>.</li><li>No primeiro acesso, crie uma senha pessoal quando o sistema solicitar.</li></ol><h3>Senha e segurança</h3><p id="helpPasswordRecoveryText">A recuperação automática por e-mail ainda não está configurada. Se não conseguir entrar, peça à Administração para abrir <b>Usuários</b> ou <b>Professores</b> e usar <b>Redefinir senha</b>. Para sair com segurança, use o ícone de saída ao lado do seu nome no menu lateral.</p></div>
             </details>
 
             <details class="help-card panel" data-help-audience="manager" data-help-search="gestão alunos turmas séries indicadores cadastrar aluno organizar turma">
@@ -280,6 +277,7 @@
           </div>
         </section>
       </div>
+      <footer class="educlass-credit"><strong>EDUCLASS</strong><span>Produzido por Ana Heloísa e Júlia Vitória — Estagiárias 2026.</span></footer>
     </main>
   </div>
 
@@ -332,7 +330,9 @@
         <label>USUÁRIO<input id="userLogin" placeholder="Ex.: ciencias6-2027" required /><small>Use um nome curto e fácil.</small></label>
         <label>Perfil<select id="userRole" required><option>Coordenação</option><option>Professor</option><option>Administrador</option><option>Financeiro</option></select></label>
         <label>Status<select id="userStatus" required><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
-        <label class="full">SENHA INICIAL<span class="password-generator"><input id="userPassword" type="text" minlength="8" placeholder="Mínimo de 8 caracteres" /><button class="secondary-btn" type="button" id="generateUserPassword">Gerar senha</button></span><small id="passwordHint">Obrigatória para novos usuários e trocada no primeiro acesso.</small></label>
+        <label class="full hidden" id="userEmailWrap">E-MAIL DE RECUPERAÇÃO<input id="userEmail" type="email" maxlength="254" placeholder="usuario@escola.com.br" /><small id="userEmailHint">O endereço precisa ser individual e será validado por e-mail.</small><span class="email-status hidden" id="userEmailStatus"></span><button class="link-btn email-verification-action hidden" type="button" id="requestEmailVerification">Enviar nova verificação</button></label>
+        <label>SENHA INICIAL<span class="password-generator"><input id="userPassword" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /><button class="secondary-btn" type="button" id="generateUserPassword">Gerar</button></span><small id="passwordHint">Obrigatória para novos usuários e trocada no primeiro acesso.</small></label>
+        <label>CONFIRMAR SENHA<input id="userPasswordConfirm" type="password" minlength="8" placeholder="Repita a senha" /></label>
       </div>
       <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Atribuições do professor</h3><p>Cada combinação de turma, disciplina e ano letivo é validada pelo servidor.</p></div></div><div id="teacherAssignmentList"></div><div class="form-grid"><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Turma e ano letivo<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><div class="head-actions"><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button><button class="secondary-btn hidden" type="button" id="addTeacherAssignment">＋ Adicionar outra atribuição</button></div></section>
       <p class="login-error hidden" id="userFormError" role="alert"></p>
@@ -343,6 +343,10 @@
   <dialog class="modal credential-modal" id="credentialModal"><div><div class="modal-head"><div><span class="soft-label">Credencial temporária</span><h2>Acesso criado com segurança</h2><p>Copie e entregue ao usuário. Esta senha não poderá ser consultada novamente.</p></div><button class="modal-close" type="button" id="closeCredentialModal">×</button></div><div class="credential-card"><label>USUÁRIO<strong id="credentialUsername">—</strong></label><label>SENHA TEMPORÁRIA<strong id="credentialPassword">—</strong></label><p>O sistema exigirá uma nova senha no primeiro acesso.</p></div><div class="modal-actions"><button class="secondary-btn" type="button" id="copyCredential">Copiar acesso</button><span class="action-spacer"></span><button class="primary-btn" type="button" id="finishCredential">Concluir</button></div></div></dialog>
 
   <dialog class="modal password-change-modal" id="passwordChangeModal"><form method="dialog" id="passwordChangeForm"><div class="modal-head"><div><span class="soft-label">Segurança da conta</span><h2>Crie sua nova senha</h2><p>Por segurança, a senha temporária deve ser substituída antes de usar o sistema.</p></div></div><div class="form-grid"><label class="full">Nova senha<input id="newOwnPassword" type="password" minlength="8" required /></label><label class="full">Confirmar nova senha<input id="confirmOwnPassword" type="password" minlength="8" required /></label></div><p class="login-error hidden" id="passwordChangeError"></p><div class="modal-actions"><button class="danger-btn" type="button" id="passwordChangeLogout">Sair</button><span class="action-spacer"></span><button class="primary-btn" type="submit" value="default">Salvar nova senha</button></div></form></dialog>
+
+  <dialog class="modal recovery-modal" id="forgotPasswordModal"><form method="dialog" id="forgotPasswordForm"><div class="modal-head"><div><span class="soft-label">Recuperação segura</span><h2>Esqueceu sua senha?</h2><p>As instruções serão enviadas somente ao e-mail verificado da conta.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><div class="form-grid"><label class="full">Usuário ou e-mail<input id="recoveryIdentifier" autocomplete="username" required placeholder="Informe seu usuário ou e-mail verificado" /></label></div><p class="recovery-privacy-note">Por segurança, o sistema não informa se o usuário existe. O endereço de destino nunca pode ser escolhido livremente.</p><p class="login-error hidden" id="forgotPasswordError"></p><div class="modal-actions"><button class="secondary-btn" value="cancel">Cancelar</button><span class="action-spacer"></span><button class="primary-btn" type="submit" value="default" id="sendRecoveryBtn">Enviar instruções</button></div></form></dialog>
+
+  <dialog class="modal recovery-modal" id="resetPasswordModal"><form method="dialog" id="resetPasswordForm"><div class="modal-head"><div><span class="soft-label">Link verificado</span><h2>Criar nova senha</h2><p>O link é temporário e poderá ser utilizado somente uma vez.</p></div></div><div class="form-grid"><label class="full">Nova senha<input id="recoveryNewPassword" type="password" minlength="8" autocomplete="new-password" required /></label><label class="full">Confirmar nova senha<input id="recoveryConfirmPassword" type="password" minlength="8" autocomplete="new-password" required /></label></div><p class="login-error hidden" id="resetPasswordError"></p><div class="modal-actions"><span class="action-spacer"></span><button class="primary-btn" type="submit" value="default" id="confirmRecoveryBtn">Salvar nova senha</button></div></form></dialog>
 
   <dialog class="modal library-modal" id="libraryBookModal">
     <form method="dialog" id="libraryBookForm"><div class="modal-head"><div><span class="soft-label" id="libraryModalLabel">Novo cadastro</span><h2 id="libraryModalTitle">Cadastrar Livro</h2><p>Preencha o que estiver disponível; os demais dados podem ser incluídos depois.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div><input type="hidden" id="libraryBookId" />
@@ -389,14 +393,14 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261115-central-ajuda"></script>
+  <script src="./app.js?v=20261115-email-relatorios"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./library.js?v=20261103-vercel-api-routes"></script>
-  <script src="./reports.js?v=20261103-reports"></script>
+  <script src="./reports.js?v=20261115-tres-niveis"></script>
   <script src="./progressions.js?v=20261103-progressions"></script>
   <script src="./agenda-status.js?v=20261103-agenda-flexible"></script>
   <script src="./help.js?v=20261115-central-ajuda"></script>

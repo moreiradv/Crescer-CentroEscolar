@@ -6,11 +6,16 @@ const LIBRARY_JS = __LIBRARY_JS__;
 const REPORTS_JS = __REPORTS_JS__;
 const PROGRESSIONS_JS = __PROGRESSIONS_JS__;
 const AGENDA_STATUS_JS = __AGENDA_STATUS_JS__;
+const HELP_JS = __HELP_JS__;
 const LOGO_BASE64 = __LOGO_BASE64__;
 
 const SESSION_COOKIE = "crescer_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const PBKDF2_ITERATIONS = 40000;
+const EMAIL_VERIFICATION_SECONDS = 60 * 60 * 24;
+const PASSWORD_RESET_SECONDS = 60 * 30;
+const RECOVERY_WINDOW_MS = 15 * 60 * 1000;
+const RECOVERY_MAX_ATTEMPTS = 5;
 const ALLOWED_EXTERNAL_ORIGINS = new Set([
   "https://moreiradv.github.io",
   "https://crescer-escola-web.vercel.app",
@@ -27,7 +32,7 @@ function normalizeUsername(value) {
 }
 
 function safeUser(row) {
-  return { id: row.id, username: row.username, name: row.name, role: row.role, initials: row.initials, status: row.status, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignments: row.assignments || [], assignment: row.assignment || null };
+  return { id: row.id, username: row.username, name: row.name, role: row.role, initials: row.initials, status: row.status, email: row.email || null, pendingEmail: row.pending_email || null, emailVerified: !!row.email_verified_at, emailVerifiedAt: row.email_verified_at || null, mustChangePassword: !!(row.must_change_password ?? row.mustChangePassword), assignments: row.assignments || [], assignment: row.assignment || null };
 }
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -130,7 +135,7 @@ async function getSession(request, db) {
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : parseCookies(request)[SESSION_COOKIE];
   if (!token) return null;
   const tokenHash = await hashToken(token);
-  const row = await db.prepare(`SELECT u.id, u.username, u.name, u.role, u.initials, u.status, u.must_change_password, s.id AS session_id, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? LIMIT 1`).bind(tokenHash).first();
+  const row = await db.prepare(`SELECT u.id, u.username, u.name, u.role, u.initials, u.status, u.email, u.pending_email, u.email_verified_at, u.must_change_password, s.id AS session_id, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? LIMIT 1`).bind(tokenHash).first();
   if (!row || row.status !== "active" || row.expires_at <= Date.now()) {
     if (row?.session_id) await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(row.session_id).run();
     return null;
@@ -228,6 +233,77 @@ function initialsFor(name) {
 async function audit(db, actorId, action, targetId, details) {
   await db.prepare(`INSERT INTO audit_logs (actor_user_id, action, target_user_id, details, created_at) VALUES (?, ?, ?, ?, ?)`)
     .bind(actorId, action, targetId ?? null, details ?? null, Date.now()).run();
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function validEmail(value) {
+  const email = normalizeEmail(value);
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character]));
+}
+
+function publicAppOrigin(env) {
+  return String(env.PUBLIC_APP_ORIGIN || "https://crescer-escola-web.vercel.app").replace(/\/$/, "");
+}
+
+async function sendTransactionalEmail(env, { to, subject, html, text, idempotencyKey }) {
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) throw new Error("O serviço de e-mail ainda não está configurado.");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "content-type": "application/json", "authorization": `Bearer ${env.RESEND_API_KEY}`, ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) },
+    body: JSON.stringify({ from: env.EMAIL_FROM, to: [to], subject, html, text }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.error) throw new Error(result.message || "O provedor não confirmou o envio do e-mail.");
+  return result;
+}
+
+async function emailInUse(db, emailKey, userId = 0) {
+  return db.prepare(`SELECT id FROM users WHERE id != ? AND (email_key = ? OR pending_email_key = ?) LIMIT 1`).bind(Number(userId) || 0, emailKey, emailKey).first();
+}
+
+async function requestEmailVerification(db, env, { userId, email, actorId = null, username = "" }) {
+  const normalized = normalizeEmail(email);
+  if (!validEmail(normalized)) throw new Error("Informe um endereço de e-mail válido.");
+  if (await emailInUse(db, normalized, userId)) throw new Error("Este e-mail já está vinculado a outra conta.");
+  const previous = await db.prepare(`SELECT pending_email, pending_email_key FROM users WHERE id = ?`).bind(userId).first();
+  if (!previous) throw new Error("Usuário não encontrado.");
+  const token = `${randomHex(32)}${randomHex(16)}`, tokenHash = await hashToken(token), now = Date.now();
+  await db.batch([
+    db.prepare(`UPDATE users SET pending_email = ?, pending_email_key = ?, updated_at = ? WHERE id = ?`).bind(normalized, normalized, now, userId),
+    db.prepare(`INSERT INTO auth_tokens (user_id, type, token_hash, expires_at, consumed_at, created_at) VALUES (?, 'email_verification', ?, ?, NULL, ?)`).bind(userId, tokenHash, now + EMAIL_VERIFICATION_SECONDS * 1000, now),
+  ]);
+  const link = `${publicAppOrigin(env)}/?verify_email=${encodeURIComponent(token)}`;
+  try {
+    await sendTransactionalEmail(env, {
+      to: normalized,
+      subject: "Confirme seu e-mail no EduClass",
+      text: `Confirme o e-mail da conta ${username || "EduClass"} acessando: ${link}. O link expira em 24 horas.`,
+      html: `<div style="font-family:Arial,sans-serif;color:#172033"><h2 style="color:#0a2463">Confirmação de e-mail — EduClass</h2><p>Confirme o endereço de recuperação da conta <strong>${escapeHtml(username)}</strong>.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#2457e6;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Confirmar meu e-mail</a></p><p>Este link expira em 24 horas. Se você não esperava esta mensagem, avise a Gestão Escolar.</p></div>`,
+      idempotencyKey: `email-verification/${userId}/${tokenHash.slice(0, 16)}`,
+    });
+  } catch (error) {
+    await db.batch([
+      db.prepare(`DELETE FROM auth_tokens WHERE token_hash = ?`).bind(tokenHash),
+      db.prepare(`UPDATE users SET pending_email = ?, pending_email_key = ?, updated_at = ? WHERE id = ?`).bind(previous.pending_email || null, previous.pending_email_key || null, Date.now(), userId),
+    ]);
+    throw error;
+  }
+  await db.prepare(`UPDATE auth_tokens SET consumed_at = ? WHERE user_id = ? AND type = 'email_verification' AND consumed_at IS NULL AND token_hash != ?`).bind(Date.now(), userId, tokenHash).run();
+  await audit(db, actorId, "user_email_verification_sent", userId, normalized);
+  return { email: normalized, status: "pending" };
+}
+
+async function recoveryRateLimited(db, identifierHash, ipHash) {
+  const cutoff = Date.now() - RECOVERY_WINDOW_MS;
+  const result = await db.prepare(`SELECT COUNT(*) AS total FROM recovery_requests WHERE created_at >= ? AND (identifier_hash = ? OR ip_hash = ?)`).bind(cutoff, identifierHash, ipHash).first();
+  return Number(result?.total || 0) >= RECOVERY_MAX_ATTEMPTS;
 }
 
 const DEFAULT_GRADES = ["Infantil 3", "Infantil 4", "Infantil 5", "1º Ano", "2º Ano", "3º Ano", "4º Ano", "5º Ano", "6º Ano", "7º Ano", "8º Ano", "9º Ano"];
@@ -601,6 +677,78 @@ async function handleApi(request, env, path) {
   const db = env.DB;
   if (!db) return json({ error: "Banco de dados indisponível." }, 503);
 
+  if (path === "/api/auth/capabilities" && request.method === "GET") {
+    return json({ emailRecovery: !!(env.RESEND_API_KEY && env.EMAIL_FROM), verificationRequired: true });
+  }
+
+  if (path === "/api/auth/verify-email" && request.method === "POST") {
+    const body = await readJson(request), token = String(body.token || "");
+    if (token.length < 32) return json({ error: "O link de verificação é inválido." }, 400);
+    const tokenHash = await hashToken(token), now = Date.now();
+    const record = await db.prepare(`SELECT t.id AS token_id, t.user_id, t.expires_at, t.consumed_at, u.username, u.pending_email, u.pending_email_key FROM auth_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.type = 'email_verification' LIMIT 1`).bind(tokenHash).first();
+    if (!record || record.consumed_at || record.expires_at <= now || !record.pending_email || !record.pending_email_key) return json({ error: "Este link expirou ou já foi utilizado. Solicite uma nova verificação à Gestão Escolar." }, 400);
+    try {
+      await db.batch([
+        db.prepare(`UPDATE users SET email = pending_email, email_key = pending_email_key, email_verified_at = ?, pending_email = NULL, pending_email_key = NULL, updated_at = ? WHERE id = ?`).bind(now, now, record.user_id),
+        db.prepare(`UPDATE auth_tokens SET consumed_at = ? WHERE user_id = ? AND type = 'email_verification' AND consumed_at IS NULL`).bind(now, record.user_id),
+      ]);
+    } catch (error) {
+      if (String(error).includes("UNIQUE")) return json({ error: "Este e-mail já foi confirmado em outra conta. Procure a Gestão Escolar." }, 409);
+      throw error;
+    }
+    await audit(db, record.user_id, "user_email_verified", record.user_id, record.pending_email);
+    return json({ ok: true, message: "E-mail verificado. A recuperação de senha já está disponível para esta conta." });
+  }
+
+  if (path === "/api/auth/forgot-password" && request.method === "POST") {
+    const body = await readJson(request), identifier = String(body.identifier || "").trim(), identifierKey = identifier.includes("@") ? normalizeEmail(identifier) : normalizeUsername(identifier);
+    if (!identifierKey) return json({ error: "Informe seu usuário ou e-mail." }, 400);
+    const identifierHash = await hashToken(identifierKey), ipHash = await hashToken(request.headers.get("cf-connecting-ip") || "unknown"), now = Date.now();
+    if (await recoveryRateLimited(db, identifierHash, ipHash)) return json({ error: "Muitas solicitações. Aguarde 15 minutos e tente novamente." }, 429);
+    const user = await db.prepare(`SELECT id, username, name, email FROM users WHERE status = 'active' AND email_verified_at IS NOT NULL AND (username_key = ? OR email_key = ?) LIMIT 1`).bind(identifierKey, identifierKey).first();
+    const requestResult = await db.prepare(`INSERT INTO recovery_requests (user_id, identifier_hash, ip_hash, kind, status, created_at) VALUES (?, ?, ?, 'password_reset', 'requested', ?)`).bind(user?.id || null, identifierHash, ipHash, now).run();
+    if (!user) return json({ ok: true, message: "Se existir uma conta com e-mail verificado, as instruções serão enviadas." }, 202);
+    const token = `${randomHex(32)}${randomHex(16)}`, tokenHash = await hashToken(token), link = `${publicAppOrigin(env)}/?reset_password=${encodeURIComponent(token)}`;
+    await db.prepare(`INSERT INTO auth_tokens (user_id, type, token_hash, expires_at, consumed_at, created_at) VALUES (?, 'password_reset', ?, ?, NULL, ?)`).bind(user.id, tokenHash, now + PASSWORD_RESET_SECONDS * 1000, now).run();
+    try {
+      await sendTransactionalEmail(env, {
+        to: user.email,
+        subject: "Redefinição de senha do EduClass",
+        text: `Redefina a senha da conta ${user.username} acessando: ${link}. O link expira em 30 minutos e só pode ser usado uma vez.`,
+        html: `<div style="font-family:Arial,sans-serif;color:#172033"><h2 style="color:#0a2463">Redefinição de senha — EduClass</h2><p>Recebemos uma solicitação para a conta <strong>${escapeHtml(user.username)}</strong>.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#2457e6;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Criar nova senha</a></p><p>O link expira em 30 minutos e funciona uma única vez. Se você não solicitou a alteração, ignore esta mensagem.</p></div>`,
+        idempotencyKey: `password-reset/${user.id}/${tokenHash.slice(0, 16)}`,
+      });
+      await db.prepare(`UPDATE recovery_requests SET status = 'sent' WHERE id = ?`).bind(requestResult.meta.last_row_id).run();
+    } catch (error) {
+      await db.batch([
+        db.prepare(`DELETE FROM auth_tokens WHERE token_hash = ?`).bind(tokenHash),
+        db.prepare(`UPDATE recovery_requests SET status = 'failed' WHERE id = ?`).bind(requestResult.meta.last_row_id),
+      ]);
+      return json({ error: "Não foi possível enviar o e-mail de recuperação. Tente novamente mais tarde ou procure a Gestão Escolar." }, 503);
+    }
+    return json({ ok: true, message: "Se existir uma conta com e-mail verificado, as instruções serão enviadas." }, 202);
+  }
+
+  if (path === "/api/auth/reset-password" && request.method === "POST") {
+    const body = await readJson(request), token = String(body.token || ""), password = String(body.password || ""), confirmPassword = String(body.confirmPassword || "");
+    if (password.length < 8) return json({ error: "A nova senha deve ter pelo menos 8 caracteres." }, 400);
+    if (password !== confirmPassword) return json({ error: "As senhas não coincidem." }, 400);
+    const tokenHash = await hashToken(token), now = Date.now();
+    const record = await db.prepare(`SELECT t.id AS token_id, t.user_id, t.expires_at, t.consumed_at, u.username, u.name, u.email FROM auth_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.type = 'password_reset' LIMIT 1`).bind(tokenHash).first();
+    if (!record || record.consumed_at || record.expires_at <= now) return json({ error: "Este link expirou ou já foi utilizado. Solicite uma nova recuperação." }, 400);
+    const salt = randomHex(16), passwordHash = await hashPassword(password, salt);
+    await db.batch([
+      db.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = 0, updated_at = ? WHERE id = ?`).bind(passwordHash, salt, now, record.user_id),
+      db.prepare(`UPDATE auth_tokens SET consumed_at = ? WHERE user_id = ? AND type = 'password_reset' AND consumed_at IS NULL`).bind(now, record.user_id),
+      db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(record.user_id),
+      db.prepare(`UPDATE recovery_requests SET status = 'completed' WHERE id = (SELECT id FROM recovery_requests WHERE user_id = ? AND kind = 'password_reset' ORDER BY created_at DESC LIMIT 1)`).bind(record.user_id),
+    ]);
+    await audit(db, record.user_id, "password_recovered", record.user_id, null);
+    let notificationSent = true;
+    try { await sendTransactionalEmail(env, { to: record.email, subject: "Sua senha do EduClass foi alterada", text: `A senha da conta ${record.username} foi alterada. Se não foi você, procure imediatamente a Gestão Escolar.`, html: `<div style="font-family:Arial,sans-serif;color:#172033"><h2 style="color:#0a2463">Senha alterada — EduClass</h2><p>A senha da conta <strong>${escapeHtml(record.username)}</strong> foi alterada.</p><p>Se não foi você, procure imediatamente a Gestão Escolar.</p></div>`, idempotencyKey: `password-changed/${record.user_id}/${now}` }); } catch { notificationSent = false; }
+    return json({ ok: true, notificationSent, message: notificationSent ? "Senha alterada com segurança. Entre novamente." : "Senha alterada, mas a notificação por e-mail não pôde ser enviada." });
+  }
+
   const libraryResponse = await handleLibraryApi(request, env, path);
   if (libraryResponse) return libraryResponse;
 
@@ -648,7 +796,7 @@ async function handleApi(request, env, path) {
       db.prepare(`DELETE FROM sessions WHERE user_id = ? AND id != ?`).bind(user.id, user.sessionId),
     ]);
     await audit(db, user.id, "password_changed", user.id, null);
-    const updated = await db.prepare(`SELECT id, username, name, role, initials, status, must_change_password FROM users WHERE id = ?`).bind(user.id).first();
+    const updated = await db.prepare(`SELECT id, username, name, role, initials, status, email, pending_email, email_verified_at, must_change_password FROM users WHERE id = ?`).bind(user.id).first();
     return json({ ok: true, user: safeUser(await enrichUser(db, safeUser(updated))) });
   }
 
@@ -1077,7 +1225,7 @@ async function handleApi(request, env, path) {
 
   if (path === "/api/users" && request.method === "GET") {
     const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
-    const result = await db.prepare(`SELECT id, username, name, role, initials, status, must_change_password, created_at, updated_at FROM users ORDER BY CASE role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, name`).all();
+    const result = await db.prepare(`SELECT id, username, name, role, initials, status, email, pending_email, email_verified_at, must_change_password, created_at, updated_at FROM users ORDER BY CASE role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, name`).all();
     const assignments = await db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY ta.school_year DESC, c.name, s.name`).all();
     return json({ users: result.results.map(user => { const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id)); return { ...user, assignments: links, ...(links[0] || {}) }; }) });
   }
@@ -1089,7 +1237,12 @@ async function handleApi(request, env, path) {
     const username = String(body.username || "").trim();
     const role = String(body.role || "");
     const password = String(body.password || "");
+    const confirmPassword = String(body.confirmPassword || "");
+    const email = normalizeEmail(body.email);
     if (name.length < 3 || username.length < 3 || password.length < 8 || !ALLOWED_ROLES.has(role)) return json({ error: "Preencha nome, usuário, perfil e uma senha com pelo menos 8 caracteres." }, 400);
+    if (password !== confirmPassword) return json({ error: "As senhas não coincidem." }, 400);
+    if (!validEmail(email)) return json({ error: "Informe um e-mail individual válido para o novo usuário." }, 400);
+    if (await emailInUse(db, email)) return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
     let assignment = null; if (role === "Professor") { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
     const salt = randomHex(16); const passwordHash = await hashPassword(password, salt); const now = Date.now();
     try {
@@ -1097,8 +1250,10 @@ async function handleApi(request, env, path) {
         .bind(username, normalizeUsername(username), name, role, initialsFor(name), passwordHash, salt, body.status === "inactive" ? "inactive" : "active", now, now).run();
       if (role === "Professor") await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(result.meta.last_row_id, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, body.status === "inactive" ? "inactive" : "active", auth.user.id, now, now).run();
+      try { await requestEmailVerification(db, env, { userId: result.meta.last_row_id, email, actorId: auth.user.id, username }); }
+      catch (error) { await db.prepare(`DELETE FROM users WHERE id = ?`).bind(result.meta.last_row_id).run(); throw error; }
       await audit(db, auth.user.id, "user_created", result.meta.last_row_id, username);
-      return json({ ok: true, id: result.meta.last_row_id, username, mustChangePassword: true }, 201);
+      return json({ ok: true, id: result.meta.last_row_id, username, emailStatus: "pending", mustChangePassword: true }, 201);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Esse nome de usuário já está em uso." }, 409);
       throw error;
@@ -1106,6 +1261,16 @@ async function handleApi(request, env, path) {
   }
 
   const userMatch = path.match(/^\/api\/users\/(\d+)$/);
+  const userEmailVerificationMatch = path.match(/^\/api\/users\/(\d+)\/email-verification$/);
+  if (userEmailVerificationMatch && request.method === "POST") {
+    const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
+    const targetId = Number(userEmailVerificationMatch[1]), body = await readJson(request), existing = await db.prepare(`SELECT id, username, email, pending_email FROM users WHERE id = ?`).bind(targetId).first();
+    if (!existing) return json({ error: "Usuário não encontrado." }, 404);
+    const email = normalizeEmail(body.email || existing.pending_email || existing.email);
+    if (existing.email === email && !existing.pending_email) return json({ error: "Este e-mail já está verificado para a conta." }, 400);
+    try { const result = await requestEmailVerification(db, env, { userId: targetId, email, actorId: auth.user.id, username: existing.username }); return json({ ok: true, ...result, message: "Verificação enviada. O e-mail continuará pendente até a confirmação do usuário." }); }
+    catch (error) { return json({ error: error.message || "Não foi possível enviar a verificação." }, /outra conta/.test(error.message) ? 409 : /válido/.test(error.message) ? 400 : 503); }
+  }
   const assignmentCollectionMatch = path.match(/^\/api\/users\/(\d+)\/assignments$/);
   if (assignmentCollectionMatch && request.method === "POST") {
     const auth = await requireAdmin(request, db); if (auth.error) return auth.error;
@@ -1162,6 +1327,7 @@ async function handleApi(request, env, path) {
     await db.batch([
       db.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = 1, updated_at = ? WHERE id = ?`).bind(passwordHash, salt, now, targetId),
       db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(targetId),
+      db.prepare(`INSERT INTO recovery_requests (user_id, identifier_hash, ip_hash, kind, status, created_at) VALUES (?, ?, ?, 'administrative_reset', 'completed', ?)`).bind(targetId, await hashToken(existing.username), await hashToken(request.headers.get("cf-connecting-ip") || "unknown"), now),
     ]);
     await audit(db, auth.user.id, "user_password_reset", targetId, existing.username); return json({ ok: true, username: existing.username, name: existing.name, temporaryPassword: password });
   }
@@ -1208,6 +1374,7 @@ export default {
       if (url.pathname === "/reports.js") return new Response(REPORTS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/progressions.js") return new Response(PROGRESSIONS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/agenda-status.js") return new Response(AGENDA_STATUS_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
+      if (url.pathname === "/help.js") return new Response(HELP_JS, { headers: securityHeaders("text/javascript; charset=utf-8", "public, max-age=3600") });
       if (url.pathname === "/assets/logo-crescer.png") return new Response(decodeBase64(LOGO_BASE64), { headers: securityHeaders("image/png", "public, max-age=86400") });
       return new Response("Not found", { status: 404, headers: securityHeaders("text/plain; charset=utf-8") });
     } catch (error) {
