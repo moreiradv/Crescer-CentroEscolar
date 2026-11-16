@@ -136,6 +136,51 @@ async function proxy(req, res, path) {
   return res.end(JSON.stringify(result.data));
 }
 
+function normalizedUsers(data) {
+  return (data.users || []).map(user => {
+    const assignments = Array.isArray(user.assignments) ? user.assignments : [];
+    const actualUserId = assignments[0]?.user_id || user.id;
+    return { ...user, id: Number(actualUserId), assignments };
+  });
+}
+
+async function handleTeacherAssignments(req, res, path) {
+  if (path === '/api/users' && req.method === 'GET') {
+    await requireUser(req, MANAGER_ROLES);
+    const result = await upstream(req, path, { method: 'GET', copyQuery: false });
+    return json(res, result.status, result.status === 200 ? { ...result.data, users: normalizedUsers(result.data) } : result.data);
+  }
+  const match = path.match(/^\/api\/teacher-assignments\/(\d+)$/);
+  if (!match || req.method !== 'PUT') return null;
+  await requireUser(req, MANAGER_ROLES);
+  const input = await body(req);
+  if (input.classId === undefined && input.educationStage === undefined && input.subjectId === undefined) return proxy(req, res, path);
+  const usersResponse = await upstream(req, '/api/users', { method: 'GET', copyQuery: false });
+  if (usersResponse.status !== 200) return json(res, usersResponse.status, usersResponse.data);
+  const assignmentId = Number(match[1]);
+  const users = normalizedUsers(usersResponse.data);
+  const teacher = users.find(user => user.assignments.some(item => Number(item.id) === assignmentId));
+  const current = teacher?.assignments.find(item => Number(item.id) === assignmentId);
+  if (!teacher || !current) return json(res, 404, { error: 'Atribuição não encontrada.' });
+  const subjectId = Number(input.subjectId) || null, classId = Number(input.classId);
+  const sameScope = Number(current.class_id) === classId && (Number(current.subject_id) || null) === subjectId;
+  if (sameScope) {
+    const updated = await upstream(req, path, { method: 'PUT', copyQuery: false, body: { status: input.status === 'inactive' ? 'inactive' : 'active' } });
+    return json(res, updated.status, updated.status < 300 ? { ok: true, id: assignmentId } : updated.data);
+  }
+  const equivalent = teacher.assignments.find(item => Number(item.id) !== assignmentId && Number(item.class_id) === classId && (Number(item.subject_id) || null) === subjectId);
+  if (equivalent) {
+    const activated = await upstream(req, `/api/teacher-assignments/${equivalent.id}`, { method: 'PUT', copyQuery: false, body: { status: 'active' } });
+    if (activated.status >= 300) return json(res, activated.status, activated.data);
+  } else {
+    const created = await upstream(req, `/api/users/${teacher.id}/assignments`, { method: 'POST', copyQuery: false, body: input });
+    if (created.status >= 300) return json(res, created.status, created.data);
+  }
+  const deactivated = await upstream(req, path, { method: 'PUT', copyQuery: false, body: { status: 'inactive' } });
+  if (deactivated.status >= 300) return json(res, deactivated.status, deactivated.data);
+  return json(res, 200, { ok: true, replaced: true });
+}
+
 async function requireUser(req, roles) {
   const session = await upstream(req, '/api/session', { method: 'GET', copyQuery: false });
   if (session.status !== 200 || !session.data.user) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
@@ -319,6 +364,10 @@ export default async function handler(req, res) {
     }
     if (path === '/api/agendas' || path === '/api/agenda-status' || /^\/api\/agendas\/-?\d+$/.test(path)) {
       const response = await handleAgendas(req, res, path);
+      if (response !== null) return response;
+    }
+    if (path === '/api/users' || /^\/api\/teacher-assignments\/\d+$/.test(path)) {
+      const response = await handleTeacherAssignments(req, res, path);
       if (response !== null) return response;
     }
     if (MANAGER_ONLY_ROUTES.some(pattern => pattern.test(path))) await requireUser(req, MANAGER_ROLES);
