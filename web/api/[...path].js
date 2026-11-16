@@ -111,7 +111,7 @@ async function upstream(req, path, options = {}) {
   const url = new URL(path, OLD_API);
   if (options.copyQuery !== false) {
     const incoming = new URL(req.url, PUBLIC_ORIGIN);
-    for (const [name, value] of incoming.searchParams) if (name !== 'path') url.searchParams.append(name, value);
+    for (const [name, value] of incoming.searchParams) if (name !== 'path' && name !== 'target') url.searchParams.append(name, value);
   }
   const response = await fetch(url, {
     method: options.method || req.method,
