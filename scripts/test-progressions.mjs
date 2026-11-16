@@ -46,6 +46,10 @@ database.prepare(`INSERT INTO students (registration,name,birth_date,guardian_na
 database.prepare(`INSERT INTO student_class_history (student_id,class_id,school_year,grade_level_snapshot,class_name_snapshot,result_status,joined_at,created_at,updated_at) VALUES (2,3,2026,'6º Ano','6º Ano A','active',?,?,?)`).run(now, now, now);
 database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('História','Ensino Fundamental',1,'active',1,?,?)`).run(now, now);
 database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('Geografia','Ensino Fundamental',2,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('Arte','Ensino Fundamental',3,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO subjects (name,education_stage,sort_order,status,created_by,created_at,updated_at) VALUES ('Ciências','Ensino Fundamental',4,'active',1,?,?)`).run(now, now);
+database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status,created_at,updated_at) VALUES ('5º Ano A','5º Ano','Matutino',2026,'active',?,?)`).run(now, now);
+database.prepare(`INSERT INTO classes (name,grade_level,shift,school_year,status,created_at,updated_at) VALUES ('5º Ano B','5º Ano','Matutino',2026,'active',?,?)`).run(now, now);
 database.prepare(`INSERT INTO teacher_assignments (user_id,education_stage,class_id,subject_id,school_year,can_attendance,can_agenda,status,created_by,created_at,updated_at) VALUES (2,'Ensino Fundamental',3,1,2026,1,1,'active',1,?,?)`).run(now, now);
 database.prepare(`INSERT INTO teacher_assignments (user_id,education_stage,class_id,subject_id,school_year,can_attendance,can_agenda,status,created_by,created_at,updated_at) VALUES (2,'Ensino Fundamental',3,2,2026,1,1,'active',1,?,?)`).run(now, now);
 
@@ -120,6 +124,20 @@ const teacherLibraryRead = await requestApi("/api/library-books", { headers: { "
 assert.equal(teacherLibraryRead.response.status, 200);
 const teacherLibraryWrite = await requestApi("/api/library-books", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ title: "Livro proibido", author: "Autor" }) }, teacherToken);
 assert.equal(teacherLibraryWrite.response.status, 403);
+const arts5A = await api("/api/users/2/assignments", { method: "POST", body: JSON.stringify({ educationStage: "Ensino Fundamental", classId: 5, subjectId: 3, canAttendance: true, canAgenda: true }) });
+const arts5B = await api("/api/users/2/assignments", { method: "POST", body: JSON.stringify({ educationStage: "Ensino Fundamental", classId: 6, subjectId: 3, canAttendance: true, canAgenda: true }) });
+await api("/api/teacher-assignments/1", { method: "PUT", body: JSON.stringify({ educationStage: "Ensino Fundamental", classId: 3, subjectId: 4, canAttendance: true, canAgenda: true, status: "active" }) });
+const persistedUsers = await api("/api/users");
+const persistedTeacher = persistedUsers.users.find(user => Number(user.id) === 2);
+assert.ok(persistedTeacher, `Professor 2 ausente; IDs retornados: ${persistedUsers.users.map(user => user.id).join(",")}`);
+assert.equal(persistedTeacher.assignments.some(item => item.class_name === "5º Ano A" && item.subject_name === "Arte"), true);
+assert.equal(persistedTeacher.assignments.some(item => item.class_name === "5º Ano B" && item.subject_name === "Arte"), true);
+assert.equal(persistedTeacher.assignments.some(item => item.class_name === "6º Ano A" && item.subject_name === "Ciências"), true);
+await api(`/api/teacher-assignments/${arts5A.id}`, { method: "PUT", body: JSON.stringify({ status: "inactive" }) });
+const reactivated = await api("/api/users/2/assignments", { method: "POST", body: JSON.stringify({ educationStage: "Ensino Fundamental", classId: 5, subjectId: 3, canAttendance: true, canAgenda: true }) });
+assert.equal(reactivated.id, arts5A.id);
+assert.equal(reactivated.reactivated, true);
+assert.equal(database.prepare(`SELECT status FROM teacher_assignments WHERE id=?`).get(arts5A.id).status, "active");
 const managerSession = await api("/api/session", {}, managerToken);
 assert.equal(managerSession.user.role, "Gestão Escolar");
 const managerUsers = await requestApi("/api/users", {}, managerToken);
@@ -127,4 +145,4 @@ assert.equal(managerUsers.response.status, 200);
 assert.equal(managerUsers.body.users.find(user => user.username === "gestao").role, "Gestão Escolar");
 const managerProgressions = await requestApi("/api/progressions", {}, managerToken);
 assert.equal(managerProgressions.response.status, 200);
-console.log("Integration tests passed: progression route/data, preserved history, one agenda with multiple subjects, multiple teacher assignments, strict server scope, manager access and read-only teacher library.");
+console.log("Integration tests passed: persistent 5A/5B/6A teacher links, assignment editing/reactivation, strict server scope, progression/history, multidisciplinary agenda and read-only teacher library.");

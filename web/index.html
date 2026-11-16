@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261116-progressao" />
+  <link rel="stylesheet" href="./styles.css?v=20261116-vinculos" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -338,7 +338,7 @@
         <label>SENHA INICIAL<span class="password-generator"><input id="userPassword" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /><button class="secondary-btn" type="button" id="generateUserPassword">Gerar</button></span><small id="passwordHint">Obrigatória para novos usuários e trocada no primeiro acesso.</small></label>
         <label>CONFIRMAR SENHA<input id="userPasswordConfirm" type="password" minlength="8" placeholder="Repita a senha" /></label>
       </div>
-      <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Atribuições do professor</h3><p>Cada turma, disciplina e ano letivo possui uma permissão independente e validada no servidor.</p></div></div><div class="teacher-assignment-list" id="teacherAssignmentList"></div><div class="assignment-editor-label" id="assignmentEditorLabel">Primeira atribuição obrigatória</div><div class="form-grid"><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Turma e ano letivo<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><div class="head-actions"><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button><button class="secondary-btn hidden" type="button" id="addTeacherAssignment">＋ Adicionar esta atribuição</button></div></section>
+      <section class="teacher-assignment-fields hidden" id="teacherAssignmentFields"><div class="section-title"><span>♧</span><div><h3>Turmas e Disciplinas Vinculadas</h3><p>Cada ano, etapa, série, turma e disciplina possui uma atribuição independente, persistida e validada no servidor.</p></div></div><div class="teacher-assignment-list" id="teacherAssignmentList"></div><input type="hidden" id="teacherAssignmentId" /><div class="assignment-editor-label" id="assignmentEditorLabel">Primeira atribuição obrigatória</div><div class="form-grid"><label>Ano letivo<select id="teacherYear"><option value="">Selecione o ano</option></select></label><label>Etapa<select id="teacherStage"><option>Educação Infantil</option><option>Ensino Fundamental</option></select></label><label>Série<select id="teacherGrade"><option value="">Selecione a série</option></select></label><label>Turma<select id="teacherClass" required><option value="">Selecione uma turma</option></select></label><label id="teacherSubjectWrap">Disciplina<select id="teacherSubject"><option value="">Selecione a disciplina</option></select></label><div class="teacher-permissions"><label><input type="checkbox" id="teacherCanAttendance" checked /> Frequência</label><label><input type="checkbox" id="teacherCanAgenda" checked /> Agenda Escolar</label></div></div><div class="head-actions"><button class="link-btn" type="button" id="suggestTeacherLogin">Gerar nome de usuário fácil</button><button class="link-btn hidden" type="button" id="cancelTeacherAssignment">Cancelar edição</button><button class="secondary-btn hidden" type="button" id="addTeacherAssignment">＋ Adicionar esta atribuição</button></div></section>
       <p class="login-error hidden" id="userFormError" role="alert"></p>
       <div class="modal-actions user-modal-actions"><button class="danger-btn hidden" type="button" id="deleteUserBtn">Remover usuário</button><button class="secondary-btn hidden" type="button" id="resetUserPassword">Redefinir senha</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar usuário</button></div>
     </form>
@@ -397,7 +397,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261116-progressao"></script>
+  <script src="./app.js?v=20261116-vinculos"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>

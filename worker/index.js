@@ -1292,7 +1292,27 @@ async function handleApi(request, env, path) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const result = await db.prepare(`SELECT id, username, name, role, initials, status, email, pending_email, email_verified_at, must_change_password, created_at, updated_at FROM users ORDER BY CASE role WHEN 'Administrador' THEN 1 WHEN 'Coordenação' THEN 2 WHEN 'Financeiro' THEN 3 ELSE 4 END, name`).all();
     const assignments = await db.prepare(`SELECT ta.*, c.name AS class_name, c.grade_level, c.shift, s.name AS subject_name FROM teacher_assignments ta JOIN classes c ON c.id = ta.class_id LEFT JOIN subjects s ON s.id = ta.subject_id ORDER BY ta.school_year DESC, c.name, s.name`).all();
-    return json({ users: result.results.map(user => { const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id)); return { ...user, role: displayRole(user.role), assignments: links, ...(links.find(item => item.status === "active") || links[0] || {}) }; }) });
+    return json({ users: result.results.map(user => {
+      const links = assignments.results.filter(item => Number(item.user_id) === Number(user.id));
+      const primary = links.find(item => item.status === "active") || links[0] || null;
+      return {
+        ...user,
+        role: displayRole(user.role),
+        assignments: links,
+        assignment_id: primary?.id || null,
+        education_stage: primary?.education_stage || null,
+        class_id: primary?.class_id || null,
+        class_name: primary?.class_name || null,
+        grade_level: primary?.grade_level || null,
+        shift: primary?.shift || null,
+        subject_id: primary?.subject_id || null,
+        subject_name: primary?.subject_name || null,
+        school_year: primary?.school_year || null,
+        can_attendance: primary?.can_attendance ?? null,
+        can_agenda: primary?.can_agenda ?? null,
+        assignment_status: primary?.status || null,
+      };
+    }) });
   }
 
   if (path === "/api/users" && request.method === "POST") {
@@ -1345,12 +1365,32 @@ async function handleApi(request, env, path) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const userId = Number(assignmentCollectionMatch[1]); const body = await readJson(request); const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
     const teacher = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'Professor'`).bind(userId).first(); if (!teacher) return json({ error: "Professor não encontrado." }, 404);
-    try { const now = Date.now(); const result = await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).bind(userId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, auth.user.id, now, now).run(); await audit(db, auth.user.id, "teacher_assignment_created", userId, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id: result.meta.last_row_id }, 201); } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Esta atribuição já está cadastrada para o professor." }, 409); throw error; }
+    const existing = assignment.subjectId
+      ? await db.prepare(`SELECT id, status FROM teacher_assignments WHERE user_id = ? AND class_id = ? AND subject_id = ? AND school_year = ?`).bind(userId, assignment.classId, assignment.subjectId, assignment.schoolYear).first()
+      : await db.prepare(`SELECT id, status FROM teacher_assignments WHERE user_id = ? AND class_id = ? AND subject_id IS NULL AND school_year = ?`).bind(userId, assignment.classId, assignment.schoolYear).first();
+    const now = Date.now();
+    if (existing) {
+      if (existing.status === "active") return json({ error: "Esta atribuição já está cadastrada e ativa para o professor." }, 409);
+      await db.prepare(`UPDATE teacher_assignments SET education_stage = ?, can_attendance = ?, can_agenda = ?, status = 'active', updated_at = ? WHERE id = ?`).bind(assignment.stage, assignment.canAttendance, assignment.canAgenda, now, existing.id).run();
+      await audit(db, auth.user.id, "teacher_assignment_reactivated", userId, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id: existing.id, reactivated: true });
+    }
+    const result = await db.prepare(`INSERT INTO teacher_assignments (user_id, education_stage, class_id, subject_id, school_year, can_attendance, can_agenda, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`).bind(userId, assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, auth.user.id, now, now).run();
+    await audit(db, auth.user.id, "teacher_assignment_created", userId, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
 
   const assignmentMatch = path.match(/^\/api\/teacher-assignments\/(\d+)$/);
   if (assignmentMatch && request.method === "PUT") {
-    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request); const status = body.status === "inactive" ? "inactive" : "active"; const result = await db.prepare(`UPDATE teacher_assignments SET status = ?, updated_at = ? WHERE id = ?`).bind(status, Date.now(), Number(assignmentMatch[1])).run(); if (!result.meta.changes) return json({ error: "Atribuição não encontrada." }, 404); await audit(db, auth.user.id, "teacher_assignment_status", Number(assignmentMatch[1]), status); return json({ ok: true });
+    const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request), id = Number(assignmentMatch[1]), current = await db.prepare(`SELECT * FROM teacher_assignments WHERE id = ?`).bind(id).first();
+    if (!current) return json({ error: "Atribuição não encontrada." }, 404);
+    if (body.classId !== undefined || body.educationStage !== undefined || body.subjectId !== undefined) {
+      const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
+      try {
+        await db.prepare(`UPDATE teacher_assignments SET education_stage = ?, class_id = ?, subject_id = ?, school_year = ?, can_attendance = ?, can_agenda = ?, status = ?, updated_at = ? WHERE id = ?`).bind(assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
+      } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Este professor já possui essa turma e disciplina neste ano letivo." }, 409); throw error; }
+      await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(current.user_id).run();
+      await audit(db, auth.user.id, "teacher_assignment_updated", current.user_id, `${assignment.classId} • ${assignment.subjectId || 'geral'} • ${assignment.schoolYear}`); return json({ ok: true, id });
+    }
+    const status = body.status === "inactive" ? "inactive" : "active"; await db.prepare(`UPDATE teacher_assignments SET status = ?, updated_at = ? WHERE id = ?`).bind(status, Date.now(), id).run(); await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(current.user_id).run(); await audit(db, auth.user.id, "teacher_assignment_status", id, status); return json({ ok: true, id });
   }
 
   if (userMatch && request.method === "PUT") {
