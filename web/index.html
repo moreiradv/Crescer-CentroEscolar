@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261115-educlass-watermark" />
+  <link rel="stylesheet" href="./styles.css?v=20261115-central-ajuda" />
 </head>
 <body>
   <div class="educlass-watermark" aria-hidden="true">
@@ -69,7 +69,7 @@
         <button class="nav-item" data-page="agendas" data-pedagogical-only><span class="nav-icon">▤</span><span>Agenda escolar</span><b class="nav-count" id="agendaNavCount">0</b></button>
         <button class="nav-item" data-page="frequencia" data-pedagogical-only><span class="nav-icon">✓</span><span>Frequência</span></button>
         <button class="nav-item" data-page="indicadores" data-pedagogical-only><span class="nav-icon">↗</span><span>Indicadores</span></button>
-        <button class="nav-item" data-page="biblioteca" data-manager-only><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
+        <button class="nav-item" data-page="biblioteca" data-library-access><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
@@ -78,7 +78,7 @@
         <button class="nav-item" data-page="usuarios" data-admin-only><span class="nav-icon">♙</span><span>Usuários</span></button>
       </nav>
       <div class="sidebar-help">
-        <div class="help-icon">?</div><strong>Precisa de ajuda?</strong><span>Fale com o suporte</span><button>Central de ajuda</button>
+        <div class="help-icon">?</div><strong>Precisa de ajuda?</strong><span>Orientações para usar o sistema</span><button id="openHelpCenter">Central de ajuda</button>
       </div>
       <div class="sidebar-user">
         <span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><span data-user-role>Perfil</span></div><button id="logoutBtn" aria-label="Sair">↪</button>
@@ -90,7 +90,7 @@
         <button class="menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
         <div class="top-search"><span>⌕</span><input id="globalSearch" placeholder="Buscar aluno, turma, disciplina..." /><kbd>⌘ K</kbd></div>
         <div class="top-actions">
-          <button class="icon-button" aria-label="Ajuda">?</button>
+          <button class="icon-button" id="openHelpTop" aria-label="Abrir Central de Ajuda" title="Central de Ajuda">?</button>
           <button class="icon-button notification" aria-label="Notificações">♢<span></span></button>
           <div class="top-user"><span class="avatar" data-user-initials>AD</span><div><strong data-user-name>Usuário</strong><small data-user-role>Perfil</small></div><span>⌄</span></div>
         </div>
@@ -144,14 +144,14 @@
       </div>
 
       <div class="page" id="page-agendas">
-        <section class="page-head"><div><p class="eyebrow">Acompanhamento pedagógico</p><h1>Agenda escolar</h1><p>Consulte e acompanhe todos os registros da escola.</p></div><div class="head-actions"><button class="secondary-btn" id="openSubjectSettings" data-manager-only>⚙ Disciplinas</button><button class="primary-btn" data-open-modal="agendaModal">＋ Nova agenda</button></div></section>
+        <section class="page-head"><div><p class="eyebrow">Acompanhamento pedagógico</p><h1>Agenda escolar</h1><p>Consulte e acompanhe todos os registros da escola.</p></div><div class="head-actions"><button class="context-help-btn" data-help-topic="agenda">? Como usar</button><button class="secondary-btn" id="openSubjectSettings" data-manager-only>⚙ Disciplinas</button><button class="primary-btn" data-open-modal="agendaModal">＋ Nova agenda</button></div></section>
         <section class="panel filters-panel"><div class="filters-row agenda-filters"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="agendaSearch" placeholder="AGENDA, turma ou responsável..." /></span></label><label>Período<select id="agendaPeriod"><option value="">Todos os períodos</option><option value="today">Hoje</option><option value="week">Esta semana</option><option value="month">Este mês</option></select></label><label>Turma<select id="agendaClass"><option value="">Todas as turmas</option></select></label></div></section>
         <section class="panel agenda-day-status hidden" id="agendaDayStatus"><div class="table-head"><div><h2>Situação diária das turmas</h2><p>“Não tem agenda” é um registro confirmado; “Sem registro” ainda aguarda informação.</p></div><label class="inline-filter">Data<input type="date" id="agendaStatusDate" /></label></div><div class="agenda-status-grid" id="agendaStatusGrid"></div></section>
         <section class="panel data-panel"><div class="table-head"><div><h2>Registros da escola</h2><p><span id="agendaCount">0</span> agendas encontradas</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Turma</th><th>Disciplina</th><th>AGENDA</th><th>Registrado por</th><th></th></tr></thead><tbody id="agendaTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-frequencia">
-        <section class="page-head"><div><p class="eyebrow">Presença dos alunos</p><h1>Frequência</h1><p>Registre e acompanhe a presença de cada turma.</p></div><button class="primary-btn" id="saveAttendance">✓ Salvar frequência</button></section>
+        <section class="page-head"><div><p class="eyebrow">Presença dos alunos</p><h1>Frequência</h1><p>Registre e acompanhe a presença de cada turma.</p></div><div class="head-actions"><button class="context-help-btn" data-help-topic="frequência">? Como usar</button><button class="primary-btn" id="saveAttendance">✓ Salvar frequência</button></div></section>
         <section class="frequency-toolbar panel"><div><label>Data<input type="date" id="attendanceDate" /></label><label>Turma<select id="attendanceClass"><option value="">Selecione uma turma</option></select></label><div class="attendance-key"><span><i class="present"></i>Presente</span><span><i class="late"></i>Atrasado</span><span><i class="justified"></i>Justificado</span><span><i class="absent"></i>Não presente</span></div></section>
         <section class="attendance-summary-row"><article><span class="legend-dot present"></span><div><small>Presentes</small><strong id="sumPresent">0</strong></div></article><article><span class="legend-dot late"></span><div><small>Atrasados</small><strong id="sumLate">0</strong></div></article><article><span class="legend-dot justified"></span><div><small>Justificados</small><strong id="sumJustified">0</strong></div></article><article><span class="legend-dot absent"></span><div><small>Não presentes</small><strong id="sumAbsent">0</strong></div></article><article class="percent"><small>Frequência da turma</small><strong id="sumPercent">0%</strong><div class="progress"><i id="sumBar" style="width:0%"></i></div></article></section>
         <section class="panel attendance-table-panel"><div class="table-head"><div><h2 id="attendanceClassTitle">Selecione uma turma</h2><p id="attendanceClassMeta">Os alunos cadastrados aparecerão aqui automaticamente.</p></div><div class="bulk-actions"><span>Marcar todos como</span><button data-bulk="present">Presentes</button></div></div><div class="student-list" id="studentList"><p class="empty-state">Cadastre uma turma e seus alunos para lançar a frequência.</p></div></section>
@@ -173,14 +173,14 @@
       </div>
 
       <div class="page" id="page-biblioteca">
-        <section class="page-head"><div><p class="eyebrow">Acervo escolar</p><h1>Biblioteca</h1><p>Cadastre, organize e consulte as obras do Crescer Centro Educacional.</p></div><button class="primary-btn" id="newLibraryBookBtn" data-manager-only>＋ Cadastrar livro</button></section>
+        <section class="page-head"><div><p class="eyebrow">Acervo escolar</p><h1>Biblioteca</h1><p>Cadastre, organize e consulte as obras do Crescer Centro Educacional.</p></div><div class="head-actions"><button class="context-help-btn" data-help-topic="biblioteca">? Como usar</button><button class="primary-btn" id="newLibraryBookBtn" data-manager-only>＋ Cadastrar livro</button></div></section>
         <section class="library-hero panel"><div><span class="library-hero-icon">▥</span><div><strong id="libraryBookCount">0</strong><p>livros catalogados no acervo</p></div></div><label>Pesquisar por nome ou autor<span class="search-field"><b>⌕</b><input id="librarySearch" placeholder="Digite para pesquisar..." /></span></label></section>
         <section><div class="library-section-head"><div><h2>Acervo digital</h2><p>Lista textual das obras, sem fotografias ou imagens de capa.</p></div></div><div class="library-grid" id="libraryGrid"><article class="panel empty-state">Nenhum livro cadastrado.</article></div></section>
         <section class="panel data-panel library-list-panel"><div class="table-head"><div><h2>Lista de Livros</h2><p><span id="libraryListCount">0</span> registros encontrados</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Identificador</th><th>Livro</th><th>Autor(a)</th><th>Editora</th><th>Faixa etária</th><th>Exemplares</th><th>Ações</th></tr></thead><tbody id="libraryTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-matriculas">
-        <section class="page-head"><div><p class="eyebrow">Admissão e financeiro</p><h1>Matrículas</h1><p>Cadastre alunos, produtos e valores com histórico financeiro preservado.</p></div><div class="head-actions"><button class="secondary-btn" id="openEnrollmentConfig">⚙ Configurações</button><button class="primary-btn" id="newEnrollmentBtn">＋ Nova matrícula</button></div></section>
+        <section class="page-head"><div><p class="eyebrow">Admissão e financeiro</p><h1>Matrículas</h1><p>Cadastre alunos, produtos e valores com histórico financeiro preservado.</p></div><div class="head-actions"><button class="context-help-btn" data-help-topic="matrícula">? Como usar</button><button class="secondary-btn" id="openEnrollmentConfig">⚙ Configurações</button><button class="primary-btn" id="newEnrollmentBtn">＋ Nova matrícula</button></div></section>
         <section class="metric-grid enrollment-metrics">
           <article class="metric-card"><div class="metric-icon blue">▣</div><div class="metric-top"><span>Total de matrículas</span><b class="up">Banco online</b></div><strong id="metricEnrollments">0</strong><small>Registros encontrados</small></article>
           <article class="metric-card"><div class="metric-icon green">✓</div><div class="metric-top"><span>Concluídas</span><b>Ativas</b></div><strong id="metricCompletedEnrollments">0</strong><small>Alunos integrados às turmas</small></article>
@@ -205,6 +205,80 @@
       <div class="page" id="page-usuarios">
         <section class="page-head"><div><p class="eyebrow">Acesso e permissões</p><h1>Usuários autorizados</h1><p>Consulte os usuários e redefina senhas temporárias com segurança.</p></div><div class="head-actions"><button class="secondary-btn" id="exportUserAccess">⇩ Lista de usuários</button><button class="primary-btn" id="newUserBtn">＋ Novo usuário</button></div></section>
         <section class="panel user-panel"><div class="user-cards" id="userCards"><p class="loading-state">Carregando usuários...</p></div></section>
+      </div>
+
+      <div class="page" id="page-ajuda">
+        <section class="page-head"><div><p class="eyebrow">Suporte informativo</p><h1>Central de Ajuda</h1><p>Aprenda a usar as funções disponíveis para o seu perfil.</p></div><span class="help-profile-badge" id="helpProfileLabel">Orientações do seu acesso</span></section>
+
+        <section class="help-hero panel">
+          <div><span class="help-hero-icon">?</span><div><h2>Como podemos ajudar?</h2><p>Pesquise uma função ou consulte as orientações organizadas por assunto.</p></div></div>
+          <label class="help-search"><span>⌕</span><input id="helpSearch" type="search" placeholder="Digite sua dúvida ou pesquise uma funcionalidade…" autocomplete="off" /></label>
+          <p class="help-result-summary" id="helpResultSummary" aria-live="polite"></p>
+        </section>
+
+        <section class="help-section" aria-labelledby="helpGuidesTitle">
+          <div class="library-section-head"><div><h2 id="helpGuidesTitle">Guias do EduClass</h2><p>Abra uma categoria para ver as instruções passo a passo.</p></div></div>
+          <div class="help-grid" id="helpGuides">
+            <details class="help-card panel" data-help-audience="all" data-help-search="acesso entrar login usuário senha recuperar redefinir sair conta erro">
+              <summary><span class="help-card-icon blue">→</span><span><strong>Acesso ao sistema</strong><small>Login, senha e saída segura</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><h3>Como entrar</h3><ol><li>Informe o usuário e a senha fornecidos pela Administração.</li><li>Selecione <b>Entrar no painel</b>.</li><li>No primeiro acesso, crie uma senha pessoal quando o sistema solicitar.</li></ol><h3>Senha e segurança</h3><p>A recuperação automática por e-mail ainda não está disponível. Se não conseguir entrar, peça à Administração para abrir <b>Usuários</b> ou <b>Professores</b> e usar <b>Redefinir senha</b>. Para sair com segurança, use o ícone de saída ao lado do seu nome no menu lateral.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="manager" data-help-search="gestão alunos turmas séries indicadores cadastrar aluno organizar turma">
+              <summary><span class="help-card-icon violet">▦</span><span><strong>Gestão Escolar</strong><small>Alunos, turmas e indicadores</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><h3>Turmas e alunos</h3><ol><li>Acesse <b>Turmas e alunos</b> e selecione <b>Nova turma</b>.</li><li>Informe nome, série, turno, ano letivo e professor regente.</li><li>Depois selecione <b>Novo aluno</b>, informe matrícula e dados do responsável e vincule a turma.</li></ol><h3>Indicadores</h3><p>Acesse <b>Indicadores</b> para consultar os índices calculados a partir das frequências realmente salvas. Use os filtros de período, turma, disciplina e ano letivo quando disponíveis.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="admin" data-help-search="professor usuário permissão cadastrar atribuir disciplina turma acesso senha">
+              <summary><span class="help-card-icon teal">♧</span><span><strong>Professores e permissões</strong><small>Contas e atribuições pedagógicas</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><ol><li>Acesse <b>Professores</b> e selecione <b>Novo professor</b>.</li><li>Informe nome, usuário, senha temporária, etapa, turma e disciplina.</li><li>Marque as permissões de Agenda e Frequência necessárias.</li><li>Salve e entregue a credencial temporária ao professor.</li></ol><p>Para alterar uma atribuição, abra o acesso do professor, atualize turma, disciplina ou ano letivo e salve. A senha existente permanece protegida; use <b>Redefinir senha</b> quando necessário.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="pedagogical" data-help-search="agenda nova registrar data série turma disciplina conteúdo atividade material não tem agenda anterior período">
+              <summary><span class="help-card-icon orange">▤</span><span><strong>Agenda Escolar</strong><small>Registro, consulta e “Não tem agenda”</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><h3>Registrar uma agenda</h3><ol><li>Acesse <b>Agenda escolar</b> e selecione <b>Nova agenda</b>.</li><li>Informe a data e a turma. A etapa, o ano e a série são preenchidos pela turma.</li><li>Selecione uma disciplina se for aplicável; esse campo é opcional.</li><li>Registre conteúdo, atividade, materiais e observações quando houver.</li><li>Selecione <b>Salvar agenda</b> e aguarde a confirmação do banco.</li></ol><h3>Quando não houver agenda</h3><p>Marque <b>Não tem agenda</b>. O sistema registrará oficialmente essa situação sem exigir conteúdo ou materiais. Para consultar registros anteriores, use a pesquisa e os filtros de período e turma.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="pedagogical" data-help-search="frequência presença presente atrasado justificado não presente falta turma data corrigir anterior índice">
+              <summary><span class="help-card-icon green">✓</span><span><strong>Frequência dos Alunos</strong><small>Presenças, faltas e consultas</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><ol><li>Acesse <b>Frequência</b>, escolha a data e a turma.</li><li>Marque cada aluno como <b>Presente</b>, <b>Atrasado</b>, <b>Justificado</b> ou <b>Não presente</b>.</li><li>Use <b>Marcar todos como Presentes</b> para agilizar e ajuste as exceções.</li><li>Selecione <b>Salvar frequência</b>.</li></ol><p><b>Presente</b> e <b>Atrasado</b> contam no índice de frequência. <b>Justificado</b> identifica uma ausência com justificativa; <b>Não presente</b> registra a falta sem justificativa. Para corrigir, escolha novamente a mesma data e turma, ajuste e salve.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="enrollment" data-help-search="matrícula aluno livros fardamento valores mensalidade localizar rascunho concluir">
+              <summary><span class="help-card-icon blue">▣</span><span><strong>Matrículas</strong><small>Cadastro, produtos e valores</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><ol><li>Acesse <b>Matrículas</b> e selecione <b>Nova matrícula</b>.</li><li>Preencha os dados do aluno, responsável, data e série.</li><li>Escolha livros e fardamentos disponíveis para a série.</li><li>Confira matrícula, mensalidade e o resumo financeiro.</li><li>Salve como rascunho ou use <b>Revisar e concluir</b>.</li></ol><p>Use a pesquisa e os filtros de série, turma e período para localizar matrículas já realizadas. Os valores de registros concluídos permanecem preservados.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="library" data-help-search="biblioteca livro livros pesquisar autor detalhes acervo cadastrar editar permissão">
+              <summary><span class="help-card-icon violet">▥</span><span><strong>Biblioteca</strong><small>Pesquisa e consulta do acervo</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><p>Acesse <b>Biblioteca</b> e pesquise pelo nome do livro ou pelo autor. Selecione um cartão ou <b>Detalhes</b> para consultar sinopse, editora, faixa etária e quantidade de exemplares.</p><p data-help-audience="manager">Administradores e Coordenação podem usar <b>Cadastrar livro</b> e <b>Editar</b> para manter o acervo.</p><p data-help-audience="teacher">Professores possuem acesso de consulta. Cadastro, edição e exclusão permanecem restritos à Gestão Escolar.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="teacher" data-help-search="professor acesso individual disciplina turma atribuição ano letivo mais de uma disciplina">
+              <summary><span class="help-card-icon teal">♧</span><span><strong>Meu acesso de professor</strong><small>Turmas e disciplinas autorizadas</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><p>Você visualiza somente as turmas, disciplinas e anos letivos atribuídos ao seu acesso. Se possuir mais de uma atribuição, use o seletor <b>Atribuição</b> no painel para alternar entre elas.</p><p>Se uma turma ou disciplina não aparecer, solicite à Coordenação ou Administração que confira seu vínculo. As atribuições do novo ano letivo precisam ser atualizadas pela Gestão.</p></div>
+            </details>
+
+            <details class="help-card panel" data-help-audience="admin" data-help-search="ano letivo progressão escolar próximo ano histórico retenção transferência série destino">
+              <summary><span class="help-card-icon orange">↗</span><span><strong>Ano letivo e progressão</strong><small>Vínculos anuais e histórico</small></span><b>⌄</b></summary>
+              <div class="help-card-body"><ol><li>Crie a turma do novo ano letivo em <b>Turmas e alunos</b>.</li><li>Confira a área <b>Progressões preparadas</b>.</li><li>Revise a turma de destino e confirme a progressão.</li><li>Use as regras de progressão para ajustar correspondências entre séries.</li></ol><p>A progressão cria um novo vínculo anual sem duplicar o cadastro principal. O aluno continua no histórico da turma anterior, com frequências, agendas e matrículas preservadas no respectivo ano.</p></div>
+            </details>
+          </div>
+          <div class="help-empty hidden" id="helpEmpty"><span>⌕</span><h3>Nenhuma orientação encontrada</h3><p>Tente pesquisar por agenda, frequência, matrícula, professor, senha ou ano letivo.</p></div>
+        </section>
+
+        <section class="help-section" aria-labelledby="helpFaqTitle">
+          <div class="library-section-head"><div><h2 id="helpFaqTitle">Perguntas frequentes</h2><p>Respostas rápidas para dúvidas comuns.</p></div></div>
+          <div class="help-faq panel" id="helpFaq">
+            <details data-help-audience="teacher" data-help-search="disciplina não visualizar"><summary>Por que não consigo visualizar determinada disciplina?<b>＋</b></summary><p>Seu acesso mostra apenas as disciplinas vinculadas pela Gestão. Se a disciplina deveria estar disponível, peça à Coordenação ou Administração para revisar sua atribuição.</p></details>
+            <details data-help-audience="teacher" data-help-search="turma não aparece acesso"><summary>Por que não aparece uma turma no meu acesso?<b>＋</b></summary><p>A turma precisa estar ativa e vinculada à sua conta no ano letivo correto. A Gestão deve corrigir o vínculo em Professores.</p></details>
+            <details data-help-audience="pedagogical" data-help-search="corrigir frequência incorreta"><summary>Como corrigir uma frequência registrada incorretamente?<b>＋</b></summary><p>Abra Frequência, selecione a mesma data e turma, corrija as situações dos alunos e salve novamente.</p></details>
+            <details data-help-audience="pedagogical" data-help-search="agendas meses anteriores período"><summary>Onde encontro as agendas de meses anteriores?<b>＋</b></summary><p>Na página Agenda escolar, use o filtro de período ou a pesquisa por turma, conteúdo ou responsável.</p></details>
+            <details data-help-audience="admin" data-help-search="cadastrar novo professor"><summary>Como cadastrar um novo professor?<b>＋</b></summary><p>Acesse Professores, selecione Novo professor, informe as credenciais e a atribuição pedagógica e salve.</p></details>
+            <details data-help-audience="admin" data-help-search="alterar disciplinas professor"><summary>Como alterar as disciplinas destinadas a um professor?<b>＋</b></summary><p>Abra o cadastro do professor, atualize a etapa, turma ou disciplina e salve. Para múltiplas atribuições, mantenha cada vínculo configurado no ano letivo correspondente.</p></details>
+            <details data-help-audience="admin" data-help-search="registros outro ano letivo histórico"><summary>Como consultar registros de outro ano letivo?<b>＋</b></summary><p>Use as turmas e os filtros do ano desejado. O histórico preserva os vínculos anteriores mesmo após a progressão do aluno.</p></details>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -315,7 +389,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261103-vercel-api-routes"></script>
+  <script src="./app.js?v=20261115-central-ajuda"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
@@ -325,5 +399,6 @@
   <script src="./reports.js?v=20261103-reports"></script>
   <script src="./progressions.js?v=20261103-progressions"></script>
   <script src="./agenda-status.js?v=20261103-agenda-flexible"></script>
+  <script src="./help.js?v=20261115-central-ajuda"></script>
 </body>
 </html>
