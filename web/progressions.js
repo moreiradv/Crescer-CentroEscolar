@@ -42,4 +42,4 @@ $('#progressionRuleList').onclick=event=>{const button=event.target.closest('[da
 $('#progressionRuleForm').onsubmit=async event=>{event.preventDefault();const id=$('#progressionRuleId').value,box=$('#progressionRuleError');box.classList.add('hidden');try{await api(id?`/api/progression-rules/${id}`:'/api/progression-rules',{method:id?'PUT':'POST',body:JSON.stringify({fromGrade:$('#progressionFromGrade').value,toGrade:$('#progressionToGrade').value,status:$('#progressionRuleStatus').value})});clearProgressionRuleForm();await loadProgressions();toast('Regra salva','As próximas progressões usarão esta correspondência.')}catch(error){box.textContent=error.message;box.classList.remove('hidden')}};
 
 const showPageBeforeProgressions=showPage;
-showPage=name=>{const result=showPageBeforeProgressions(name);if(name==='turmas'&&manager())loadProgressions(true);return result};
+showPage=name=>{const result=showPageBeforeProgressions(name);if(name==='progressao'&&manager())loadProgressions(true);return result};

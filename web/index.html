@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261116-permissoes" />
+  <link rel="stylesheet" href="./styles.css?v=20261116-progressao" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -67,6 +67,7 @@
         <button class="nav-item" data-page="biblioteca" data-library-access><span class="nav-icon">▥</span><span>Biblioteca</span><b class="nav-count" id="libraryNavCount">0</b></button>
         <p class="nav-label">Gestão</p>
         <button class="nav-item" data-page="matriculas" data-enrollment-only><span class="nav-icon">▣</span><span>Matrículas</span><b class="nav-count" id="enrollmentNavCount">0</b></button>
+        <button class="nav-item" data-page="progressao" data-manager-only><span class="nav-icon">⇧</span><span>Regras de progressão</span></button>
         <button class="nav-item" data-page="turmas" data-manager-only><span class="nav-icon">▦</span><span>Turmas e alunos</span></button>
         <button class="nav-item" data-page="professores" data-manager-only><span class="nav-icon">♧</span><span>Professores</span></button>
         <button class="nav-item" data-page="historico" data-manager-only><span class="nav-icon">↺</span><span>Histórico</span></button>
@@ -154,8 +155,12 @@
       <div class="page" id="page-turmas">
         <section class="page-head"><div><p class="eyebrow">Estrutura acadêmica</p><h1>Turmas e alunos</h1><p>Crie turmas e vincule os alunos que aparecerão na frequência.</p></div><div class="head-actions"><button class="secondary-btn" id="newStudentBtn">＋ Novo aluno</button><button class="primary-btn" id="newClassBtn">＋ Nova turma</button></div></section>
         <section class="class-grid" id="classCards"><article class="panel empty-state">Nenhuma turma cadastrada.</article></section>
-        <section class="panel progression-panel hidden" id="progressionPanel" data-manager-only><div class="table-head"><div><h2>Progressões preparadas</h2><p>Alunos prontos para o próximo ano, sem duplicar o cadastro principal.</p></div><div class="head-actions"><button class="secondary-btn" id="openProgressionRules">⚙ Regras de progressão</button><button class="primary-btn hidden" id="confirmSelectedProgressions">Confirmar selecionados</button></div></div><div class="progression-list" id="progressionList"><p class="empty-state">Carregando progressões...</p></div></section>
         <section class="panel data-panel"><div class="table-head"><div><h2>Alunos por ano letivo</h2><p><span id="studentCount">0</span> cadastros únicos no banco</p></div><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div><div class="table-wrap"><table><thead><tr><th>Ano</th><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th><th>Ações</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
+      </div>
+
+      <div class="page" id="page-progressao">
+        <section class="page-head"><div><p class="eyebrow">Continuidade escolar</p><h1>Regras de progressão das turmas</h1><p>Revise a passagem entre anos letivos, confirme destinos e preserve todo o histórico anterior.</p></div><div class="head-actions"><button class="secondary-btn" id="openProgressionRules">⚙ Configurar séries</button><button class="primary-btn hidden" id="confirmSelectedProgressions">Confirmar selecionados</button></div></section>
+        <section class="panel progression-panel" id="progressionPanel" data-manager-only><div class="table-head"><div><h2>Progressões preparadas</h2><p>Alunos prontos para o próximo ano, sem duplicar o cadastro principal.</p></div></div><div class="progression-list" id="progressionList"><p class="empty-state">Carregando progressões...</p></div></section>
       </div>
 
       <div class="page" id="page-indicadores">
@@ -284,7 +289,7 @@
     <form method="dialog" id="agendaForm">
       <div class="modal-head"><div><span class="soft-label" id="agendaModalLabel">Novo registro</span><h2 id="agendaModalTitle">Adicionar agenda escolar</h2><p>O responsável será identificado automaticamente.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
       <input type="hidden" id="agendaId" />
-      <div class="form-grid"><label>Data<input name="date" id="agendaDate" type="date" required /></label><label>Turma<select name="classId" id="agendaFormClass" required><option value="">Selecione uma turma</option></select></label><label>Etapa<input id="agendaStage" readonly placeholder="Automática pela turma" /></label><label>Ano letivo<input id="agendaYear" readonly /></label><label>Série<input id="agendaGrade" readonly /></label><label>Professor responsável<input name="teacherName" id="agendaTeacher" /></label><label>Disciplina<select name="subjectId" id="agendaSubject"><option value="">Selecione a turma primeiro</option></select></label><label id="agendaComponentWrap" class="hidden">Conteúdo/categoria<select name="subjectComponent" id="agendaComponent"></select></label><label class="full no-agenda-option"><input type="checkbox" id="agendaNoAgenda" /> <span><strong>Não tem agenda</strong><small>Registra oficialmente que não houve atividade ou tarefa nesta data.</small></span></label><label class="full" id="agendaTextWrap">AGENDA (opcional)<textarea name="agenda" id="agendaText" placeholder="Registre atividades, conteúdos e tarefas encaminhadas aos alunos, quando houver"></textarea></label><fieldset class="full" id="agendaMaterials"><legend>Materiais necessários/utilizados</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
+      <div class="form-grid"><label>Data<input name="date" id="agendaDate" type="date" required /></label><label>Turma<select name="classId" id="agendaFormClass" required><option value="">Selecione uma turma</option></select></label><label>Etapa<input id="agendaStage" readonly placeholder="Automática pela turma" /></label><label>Ano letivo<input id="agendaYear" readonly /></label><label>Série<input id="agendaGrade" readonly /></label><label>Professor responsável<input name="teacherName" id="agendaTeacher" /></label><fieldset class="full agenda-subject-picker"><legend>Disciplinas (selecione uma ou várias)</legend><div class="agenda-subject-options" id="agendaSubjectOptions"><span>Selecione uma turma primeiro.</span></div></fieldset><label id="agendaComponentWrap" class="hidden">Conteúdo/categoria<select name="subjectComponent" id="agendaComponent"></select></label><label class="full no-agenda-option"><input type="checkbox" id="agendaNoAgenda" /> <span><strong>Não tem agenda</strong><small>Registra oficialmente que não houve atividade ou tarefa nesta data.</small></span></label><label class="full" id="agendaTextWrap">AGENDA (opcional)<textarea name="agenda" id="agendaText" placeholder="Registre atividades, conteúdos e tarefas encaminhadas aos alunos, quando houver"></textarea></label><fieldset class="full" id="agendaMaterials"><legend>Materiais necessários/utilizados</legend><div class="check-grid"><label><input type="checkbox" name="material" value="Livro" checked />Livro</label><label><input type="checkbox" name="material" value="Impressão" />Impressão</label><label><input type="checkbox" name="material" value="Atividade lúdica" />Atividade lúdica</label><label><input type="checkbox" id="otherMaterialCheck" name="material" value="Outro" />Outro</label></div><input class="hidden" id="otherMaterial" placeholder="Informe o material utilizado" /></fieldset><label class="full">Observações<textarea name="notes" placeholder="Informações adicionais (opcional)"></textarea></label></div>
       <div class="trace-note"><span>✓</span><p><strong>Rastreabilidade ativa</strong>Este registro será vinculado a <b id="traceUser">usuário atual</b> e ao horário do envio.</p></div>
       <div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteAgendaBtn">Excluir</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default" id="submitAgenda">Salvar agenda</button></div>
     </form>
@@ -392,7 +397,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261116-proxy"></script>
+  <script src="./app.js?v=20261116-progressao"></script>
   <script src="./enrollments.js?v=20261029-main-prompt"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
@@ -400,7 +405,7 @@
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./library.js?v=20261103-vercel-api-routes"></script>
   <script src="./reports.js?v=20261115-tres-niveis"></script>
-  <script src="./progressions.js?v=20261116-permissoes"></script>
+  <script src="./progressions.js?v=20261116-progressao"></script>
   <script src="./agenda-status.js?v=20261103-agenda-flexible"></script>
   <script src="./help.js?v=20261116-permissoes"></script>
 </body>

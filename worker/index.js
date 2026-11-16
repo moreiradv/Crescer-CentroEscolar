@@ -357,6 +357,58 @@ async function optionalAgendaContext(db, classId, subjectId) {
   return klass ? { klass, subject: null, educationStage: educationStageFor(`${klass.grade_level} ${klass.name}`) } : null;
 }
 
+function agendaSubjectIds(body) {
+  const values = Array.isArray(body.subjectIds) ? body.subjectIds : [body.subjectId];
+  return [...new Set(values.map(Number).filter(value => Number.isInteger(value) && value > 0))];
+}
+
+async function agendaSubjectsForRows(db, rows) {
+  if (!rows.length) return rows;
+  const links = (await db.prepare(`SELECT axs.agenda_id, s.id, s.name FROM agenda_subjects axs JOIN subjects s ON s.id = axs.subject_id ORDER BY s.name`).all()).results;
+  return rows.map(row => {
+    const subjects = links.filter(link => Number(link.agenda_id) === Number(row.id)).map(link => ({ id: Number(link.id), name: link.name }));
+    if (!subjects.length && row.subject_id) subjects.push({ id: Number(row.subject_id), name: row.current_subject_name || row.subject || "Disciplina" });
+    return { ...row, subject_ids: subjects.map(subject => subject.id), subject_names: subjects.map(subject => subject.name), subjects, subject: subjects.map(subject => subject.name).join(", ") || row.subject || "Sem disciplina", materials: JSON.parse(row.materials || "[]") };
+  });
+}
+
+async function validateAgendaSubjects(db, user, classId, subjectIds) {
+  const klass = await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first();
+  if (!klass) return { error: "Turma não encontrada." };
+  const stage = educationStageFor(`${klass.grade_level} ${klass.name}`);
+  let assignments = [];
+  if (user.role === "Professor") {
+    assignments = (user.assignments || []).filter(item => item.status === "active" && Number(item.class_id) === classId && Number(item.school_year) === Number(klass.school_year) && Number(item.can_agenda));
+    if (!assignments.length) return { error: "Sua conta não possui acesso à Agenda desta turma.", status: 403 };
+    if (stage === "Ensino Fundamental" && !subjectIds.length) return { error: "Selecione pelo menos uma disciplina autorizada.", status: 403 };
+  }
+  const available = (await db.prepare(`SELECT id, name, education_stage FROM subjects WHERE status = 'active'`).all()).results;
+  const selected = subjectIds.map(id => available.find(subject => Number(subject.id) === id)).filter(Boolean);
+  if (selected.length !== subjectIds.length || selected.some(subject => subject.education_stage !== stage)) return { error: "Uma das disciplinas escolhidas não pertence à etapa da turma." };
+  if (user.role === "Professor") {
+    const permitted = new Set(assignments.map(item => Number(item.subject_id)).filter(Boolean));
+    if (subjectIds.some(id => !permitted.has(id))) return { error: "Sua conta não possui acesso a uma das disciplinas selecionadas.", status: 403 };
+  }
+  return { klass, stage, selected };
+}
+
+async function replaceAgendaSubjects(db, agendaId, subjectIds, now = Date.now()) {
+  const operations = [db.prepare(`DELETE FROM agenda_subjects WHERE agenda_id = ?`).bind(agendaId)];
+  for (const subjectId of subjectIds) operations.push(db.prepare(`INSERT INTO agenda_subjects (agenda_id, subject_id, created_at) VALUES (?, ?, ?)`).bind(agendaId, subjectId, now));
+  await db.batch(operations);
+}
+
+async function conflictingAgenda(db, date, classId, subjectIds, exceptId = 0) {
+  const candidates = (await db.prepare(`SELECT id, subject_id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 0 AND id != ?`).bind(date, classId, exceptId).all()).results;
+  if (!candidates.length) return null;
+  const links = (await db.prepare(`SELECT agenda_id, subject_id FROM agenda_subjects`).all()).results;
+  return candidates.find(candidate => {
+    const existingIds = links.filter(link => Number(link.agenda_id) === Number(candidate.id)).map(link => Number(link.subject_id));
+    if (!existingIds.length && candidate.subject_id) existingIds.push(Number(candidate.subject_id));
+    return subjectIds.length ? existingIds.some(id => subjectIds.includes(id)) : existingIds.length === 0;
+  }) || null;
+}
+
 const LIBRARY_IMAGE_TYPES = new Map([["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]]);
 const libraryKey = value => normalizeUsername(value).replace(/[^a-z0-9 ]/g, "").trim();
 const nullableText = (value, max = 5000) => String(value || "").trim().slice(0, max) || null;
@@ -808,8 +860,10 @@ async function handleApi(request, env, path) {
     const catalog = await academicCatalog(db, auth.user.id);
     if (auth.user.role === "Professor") {
       if (!auth.user.assignment) return json({ subjects: [] });
+      const related = (auth.user.assignments || []).filter(item => item.status === "active" && Number(item.class_id) === Number(auth.user.assignment.class_id) && Number(item.school_year) === Number(auth.user.assignment.school_year));
+      const permittedIds = new Set(related.map(item => Number(item.subject_id)).filter(Boolean));
       catalog.subjects = auth.user.assignment.education_stage === "Ensino Fundamental"
-        ? catalog.subjects.filter(subject => Number(subject.id) === Number(auth.user.assignment.subject_id))
+        ? catalog.subjects.filter(subject => permittedIds.has(Number(subject.id)))
         : catalog.subjects.filter(subject => subject.education_stage === "Educação Infantil");
     }
     return json(catalog);
@@ -1072,7 +1126,7 @@ async function handleApi(request, env, path) {
     const assignment = auth.user.role === "Professor" ? auth.user.assignment : null;
     if (auth.user.role === "Professor" && !assignment) return json({ date, statuses: [] });
     const result = assignment?.subject_id
-      ? await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? AND a.subject_id = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.id = ? AND c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date, assignment.subject_id, assignment.class_id).all()
+      ? await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(DISTINCT a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? AND (a.subject_id = ? OR EXISTS (SELECT 1 FROM agenda_subjects axs WHERE axs.agenda_id = a.id AND axs.subject_id = ?)) LEFT JOIN users u ON u.id = a.created_by WHERE c.id = ? AND c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date, assignment.subject_id, assignment.subject_id, assignment.class_id).all()
       : assignment
         ? await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.id = ? AND c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date, assignment.class_id).all()
         : await db.prepare(`SELECT c.id, c.name, c.grade_level, c.shift, c.school_year, COUNT(a.id) AS record_count, SUM(CASE WHEN a.no_agenda = 0 THEN 1 ELSE 0 END) AS agenda_count, SUM(CASE WHEN a.no_agenda = 1 THEN 1 ELSE 0 END) AS no_agenda_count, GROUP_CONCAT(DISTINCT u.name) AS recorded_by_names, MAX(a.updated_at) AS last_updated_at FROM classes c LEFT JOIN agenda_entries a ON a.class_id = c.id AND a.agenda_date = ? LEFT JOIN users u ON u.id = a.created_by WHERE c.status = 'active' GROUP BY c.id ORDER BY c.school_year DESC, c.name`).bind(date).all();
@@ -1084,41 +1138,43 @@ async function handleApi(request, env, path) {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const base = `SELECT a.*, c.name AS class_name, u.name AS created_by_name, sub.name AS current_subject_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by LEFT JOIN subjects sub ON sub.id = a.subject_id`;
     const result = auth.user.role !== "Professor" ? await db.prepare(`${base} ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).all()
-      : auth.user.assignment?.education_stage === "Ensino Fundamental" ? await db.prepare(`${base} WHERE a.class_id = ? AND a.subject_id = ? ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment.class_id, auth.user.assignment.subject_id).all()
+      : auth.user.assignment?.education_stage === "Ensino Fundamental" ? await db.prepare(`${base} WHERE a.class_id = ? AND (a.subject_id = ? OR EXISTS (SELECT 1 FROM agenda_subjects axs WHERE axs.agenda_id = a.id AND axs.subject_id = ?)) ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment.class_id, auth.user.assignment.subject_id, auth.user.assignment.subject_id).all()
       : await db.prepare(`${base} WHERE a.class_id = ? ORDER BY a.agenda_date DESC, a.created_at DESC LIMIT 500`).bind(auth.user.assignment?.class_id || 0).all();
-    return json({ agendas: result.results.map(row => ({ ...row, materials: JSON.parse(row.materials || "[]") })) });
+    return json({ agendas: await agendaSubjectsForRows(db, result.results) });
   }
 
   if (path === "/api/agendas" && request.method === "POST") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId) || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
+    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1) return json({ error: "Preencha somente a data e a turma para identificar o registro." }, 400);
-    const scopeError = teacherScopeViolation(auth.user, classId, subjectId, "agenda"); if (scopeError) return json({ error: scopeError }, 403);
-    const context = await optionalAgendaContext(db, classId, subjectId); if (!context) return json({ error: "A turma ou disciplina escolhida é inválida." }, 400);
+    const validation = await validateAgendaSubjects(db, auth.user, classId, subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 400);
+    const context = { klass: validation.klass, educationStage: validation.stage, subject: validation.selected[0] || null };
     const conflict = noAgenda ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? LIMIT 1`).bind(date, classId).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 1 LIMIT 1`).bind(date, classId).first(); if (conflict) return json({ error: noAgenda ? "Já existe uma agenda para esta turma e data. Edite ou remova o registro antes de marcar ‘Não tem agenda’." : "Esta turma e data estão marcadas como ‘Não tem agenda’. Edite esse registro antes de adicionar conteúdo." }, 409);
-    const duplicate = subjectId ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id = ? AND no_agenda = 0 LIMIT 1`).bind(date, classId, subjectId).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id IS NULL AND no_agenda = 0 LIMIT 1`).bind(date, classId).first(); if (duplicate) return json({ error: "Já existe um registro equivalente para esta turma e data. Edite o lançamento existente." }, 409);
+    const duplicate = await conflictingAgenda(db, date, classId, subjectIds); if (duplicate) return json({ error: "Já existe um registro equivalente para esta turma, data e disciplina. Edite o lançamento existente." }, 409);
     const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, no_agenda, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'Concluída', ?, ?, ?, ?, ?)`)
-      .bind(date, classId, context.subject?.name || "Sem disciplina", subjectId, subjectId ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
+      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
     const savedId = Number(result.meta.last_row_id); if (!savedId || Number(result.meta.changes || 0) !== 1) return json({ error: "O banco não confirmou o salvamento da agenda." }, 500);
+    await replaceAgendaSubjects(db, savedId, subjectIds, now);
     const saved = await db.prepare(`SELECT a.*, c.name AS class_name, u.name AS created_by_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by WHERE a.id = ?`).bind(savedId).first();
     if (!saved) return json({ error: "A agenda não pôde ser recuperada após o salvamento." }, 500);
-    await audit(db, auth.user.id, "agenda_created", savedId, content); return json({ ok: true, id: savedId, agenda: { ...saved, materials: JSON.parse(saved.materials || "[]") } }, 201);
+    await audit(db, auth.user.id, "agenda_created", savedId, content); return json({ ok: true, id: savedId, agenda: (await agendaSubjectsForRows(db, [saved]))[0] }, 201);
   }
 
   const agendaMatch = path.match(/^\/api\/agendas\/(\d+)$/);
   if (agendaMatch && request.method === "PUT") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectId = Number(body.subjectId) || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
+    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1) return json({ error: "Preencha somente a data e a turma para identificar o registro." }, 400);
-    const scopeError = teacherScopeViolation(auth.user, classId, subjectId, "agenda"); if (scopeError) return json({ error: scopeError }, 403);
-    const context = await optionalAgendaContext(db, classId, subjectId); if (!context) return json({ error: "A turma ou disciplina escolhida é inválida." }, 400);
+    const validation = await validateAgendaSubjects(db, auth.user, classId, subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 400);
+    const context = { klass: validation.klass, educationStage: validation.stage, subject: validation.selected[0] || null };
     const conflict = noAgenda ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND id != ? LIMIT 1`).bind(date, classId, id).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 1 AND id != ? LIMIT 1`).bind(date, classId, id).first(); if (conflict) return json({ error: noAgenda ? "Já existe outra agenda para esta turma e data." : "Esta turma e data já possuem outro registro ‘Não tem agenda’." }, 409);
-    const duplicate = subjectId ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id = ? AND no_agenda = 0 AND id != ? LIMIT 1`).bind(date, classId, subjectId, id).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND subject_id IS NULL AND no_agenda = 0 AND id != ? LIMIT 1`).bind(date, classId, id).first(); if (duplicate) return json({ error: "Já existe outro registro equivalente para esta turma e data." }, 409);
+    const duplicate = await conflictingAgenda(db, date, classId, subjectIds, id); if (duplicate) return json({ error: "Já existe outro registro equivalente para esta turma, data e disciplina." }, 409);
     const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = NULL, homework = NULL, materials = ?, status = 'Concluída', no_agenda = ?, notes = ?, updated_at = ? WHERE id = ?`)
-      .bind(date, classId, context.subject?.name || "Sem disciplina", subjectId, subjectId ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, Date.now(), id).run();
+      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, Date.now(), id).run();
     if (!result.meta.changes) return json({ error: "Agenda não encontrada." }, 404);
+    await replaceAgendaSubjects(db, id, subjectIds);
     await audit(db, auth.user.id, "agenda_updated", id, content); return json({ ok: true });
   }
 
@@ -1126,7 +1182,9 @@ async function handleApi(request, env, path) {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     const id = Number(agendaMatch[1]); const existing = await db.prepare(`SELECT content, class_id, subject_id FROM agenda_entries WHERE id = ?`).bind(id).first();
     if (!existing) return json({ error: "Agenda não encontrada." }, 404);
-    const scopeError = teacherScopeViolation(auth.user, existing.class_id, existing.subject_id, "agenda"); if (scopeError) return json({ error: scopeError }, 403);
+    const links = (await db.prepare(`SELECT subject_id FROM agenda_subjects WHERE agenda_id = ?`).bind(id).all()).results.map(item => Number(item.subject_id));
+    const subjectIds = links.length ? links : existing.subject_id ? [Number(existing.subject_id)] : [];
+    const validation = await validateAgendaSubjects(db, auth.user, Number(existing.class_id), subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 403);
     await db.prepare(`DELETE FROM agenda_entries WHERE id = ?`).bind(id).run(); await audit(db, auth.user.id, "agenda_deleted", id, existing.content); return json({ ok: true });
   }
 

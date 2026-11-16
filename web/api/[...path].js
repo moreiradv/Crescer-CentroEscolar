@@ -53,6 +53,7 @@ export async function ensureSchema() {
       agenda_date TEXT NOT NULL,
       class_id BIGINT NOT NULL,
       subject_id BIGINT,
+      subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
       subject_component TEXT,
       teacher_name TEXT,
       content TEXT NOT NULL,
@@ -65,6 +66,7 @@ export async function ensureSchema() {
       updated_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS crescer_agendas_date_class_idx ON crescer_agendas (agenda_date, class_id);
+    ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
   `).catch(error => { schemaPromise = null; throw error; });
   await schemaPromise;
   return db;
@@ -154,7 +156,8 @@ async function academicContext(req) {
 
 function decorateAgenda(row, context) {
   const klass = context.classes.find(item => Number(item.id) === Number(row.class_id));
-  const subject = context.subjects.find(item => Number(item.id) === Number(row.subject_id));
+  const subjectIds = [...new Set((Array.isArray(row.subject_ids) && row.subject_ids.length ? row.subject_ids : row.subject_id ? [row.subject_id] : []).map(Number).filter(Boolean))];
+  const subjects = subjectIds.map(id => context.subjects.find(item => Number(item.id) === id)).filter(Boolean);
   return {
     ...row,
     id: -Number(row.id),
@@ -162,7 +165,10 @@ function decorateAgenda(row, context) {
     school_year: klass?.school_year || null,
     grade_level: klass?.grade_level || null,
     shift: klass?.shift || null,
-    subject: subject?.name || 'Sem disciplina',
+    subject_ids: subjectIds,
+    subject_names: subjects.map(subject => subject.name),
+    subjects: subjects.map(subject => ({ id: Number(subject.id), name: subject.name })),
+    subject: subjects.map(subject => subject.name).join(', ') || 'Sem disciplina',
     materials: Array.isArray(row.materials) ? row.materials : [],
     no_agenda: row.no_agenda ? 1 : 0,
   };
@@ -179,7 +185,7 @@ async function allAgendas(req, context, user) {
   if (user.role === 'Professor') {
     const assignment = user.assignment;
     if (!assignment) localRows = [];
-    else localRows = localRows.filter(row => Number(row.class_id) === Number(assignment.class_id) && (!assignment.subject_id || Number(row.subject_id) === Number(assignment.subject_id)));
+    else localRows = localRows.filter(row => Number(row.class_id) === Number(assignment.class_id) && (!assignment.subject_id || row.subject_ids.includes(Number(assignment.subject_id))));
   }
   return [...localRows, ...oldRows].sort((a, b) => String(b.agenda_date).localeCompare(String(a.agenda_date)) || Number(b.updated_at || 0) - Number(a.updated_at || 0));
 }
@@ -210,11 +216,12 @@ async function handleAgendas(req, res, path) {
   const db = await ensureSchema();
   const localId = match ? Math.abs(Number(match[1])) : 0;
   if (req.method === 'DELETE') {
-    const existing = await db.query('SELECT class_id,subject_id FROM crescer_agendas WHERE id=$1', [localId]);
+    const existing = await db.query('SELECT class_id,subject_id,subject_ids FROM crescer_agendas WHERE id=$1', [localId]);
     if (!existing.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
     if (user.role === 'Professor') {
       const assignment = user.assignment, row = existing.rows[0];
-      if (!assignment || Number(row.class_id) !== Number(assignment.class_id) || (assignment.subject_id && Number(row.subject_id) !== Number(assignment.subject_id))) return json(res, 403, { error: 'Sua conta não possui acesso a este registro.' });
+      const ids = Array.isArray(row.subject_ids) && row.subject_ids.length ? row.subject_ids.map(Number) : row.subject_id ? [Number(row.subject_id)] : [];
+      if (!assignment || Number(row.class_id) !== Number(assignment.class_id) || (assignment.subject_id && !ids.includes(Number(assignment.subject_id)))) return json(res, 403, { error: 'Sua conta não possui acesso a este registro.' });
       if (!assignment.can_agenda) return json(res, 403, { error: 'A Agenda Escolar não está habilitada para esta atribuição.' });
     }
     await db.query('DELETE FROM crescer_agendas WHERE id = $1', [localId]);
@@ -224,32 +231,37 @@ async function handleAgendas(req, res, path) {
   const input = await body(req);
   const agendaDate = String(input.date || '').slice(0, 10);
   const classId = Number(input.classId);
-  const subjectId = Number(input.subjectId) || null;
+  const subjectIds = [...new Set((Array.isArray(input.subjectIds) ? input.subjectIds : [input.subjectId]).map(Number).filter(value => Number.isInteger(value) && value > 0))];
+  const subjectId = subjectIds[0] || null;
   const noAgenda = Boolean(input.noAgenda);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(agendaDate) || !classId) return json(res, 400, { error: 'Informe a data e a turma.' });
   const klass = context.classes.find(item => Number(item.id) === classId);
   if (!klass) return json(res, 400, { error: 'Turma não encontrada.' });
   if (user.role === 'Professor') {
-    const assignment = user.assignment;
-    if (!assignment || Number(assignment.class_id) !== classId || !assignment.can_agenda) return json(res, 403, { error: 'Sua conta não possui acesso a esta turma ou à Agenda Escolar.' });
-    if (assignment.subject_id && Number(assignment.subject_id) !== Number(subjectId || 0)) return json(res, 403, { error: 'Sua conta não possui acesso a esta disciplina.' });
+    const assignments = (user.assignments || (user.assignment ? [user.assignment] : [])).filter(item => Number(item.class_id) === classId && Number(item.can_agenda));
+    if (!assignments.length) return json(res, 403, { error: 'Sua conta não possui acesso a esta turma ou à Agenda Escolar.' });
+    const permitted = new Set(assignments.map(item => Number(item.subject_id)).filter(Boolean));
+    if (subjectIds.some(id => !permitted.has(id))) return json(res, 403, { error: 'Sua conta não possui acesso a uma das disciplinas selecionadas.' });
   }
 
   const existing = (await allAgendas(req, context, user)).filter(item => item.agenda_date === agendaDate && Number(item.class_id) === classId && Number(item.id) !== -localId);
   if (noAgenda && existing.length) return json(res, 409, { error: 'Já existe uma agenda registrada para esta turma e data.' });
   if (!noAgenda && existing.some(item => Number(item.no_agenda))) return json(res, 409, { error: 'Esta turma e data estão marcadas como “Não tem agenda”. Edite o registro existente.' });
-  if (!noAgenda && existing.some(item => (Number(item.subject_id) || 0) === (subjectId || 0))) return json(res, 409, { error: subjectId ? 'Já existe uma agenda desta disciplina para a turma e data.' : 'Já existe uma agenda geral para a turma e data.' });
+  if (!noAgenda && existing.some(item => {
+    const ids = Array.isArray(item.subject_ids) ? item.subject_ids.map(Number) : item.subject_id ? [Number(item.subject_id)] : [];
+    return subjectIds.length ? ids.some(id => subjectIds.includes(id)) : ids.length === 0;
+  })) return json(res, 409, { error: subjectId ? 'Já existe uma agenda de uma das disciplinas selecionadas para a turma e data.' : 'Já existe uma agenda geral para a turma e data.' });
 
   const content = noAgenda ? 'Não tem agenda' : text(input.agenda) || 'Agenda registrada';
   const materials = noAgenda ? [] : (Array.isArray(input.materials) ? input.materials.map(item => String(item).slice(0, 240)).slice(0, 30) : []);
   const now = Date.now();
-  const values = [agendaDate, classId, subjectId, text(input.subjectComponent, 240), text(input.teacherName, 240) || klass.teacher_name || user.name, content, JSON.stringify(materials), text(input.notes), noAgenda, Number(user.id), user.name, now];
+  const values = [agendaDate, classId, subjectId, JSON.stringify(subjectIds), subjectIds.length === 1 ? text(input.subjectComponent, 240) : null, text(input.teacherName, 240) || klass.teacher_name || user.name, content, JSON.stringify(materials), text(input.notes), noAgenda, Number(user.id), user.name, now];
   if (localId) {
-    const updated = await db.query(`UPDATE crescer_agendas SET agenda_date=$1,class_id=$2,subject_id=$3,subject_component=$4,teacher_name=$5,content=$6,materials=$7::jsonb,notes=$8,no_agenda=$9,created_by=$10,created_by_name=$11,updated_at=$12 WHERE id=$13 RETURNING id`, [...values, localId]);
+    const updated = await db.query(`UPDATE crescer_agendas SET agenda_date=$1,class_id=$2,subject_id=$3,subject_ids=$4::jsonb,subject_component=$5,teacher_name=$6,content=$7,materials=$8::jsonb,notes=$9,no_agenda=$10,created_by=$11,created_by_name=$12,updated_at=$13 WHERE id=$14 RETURNING id`, [...values, localId]);
     if (!updated.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
     return json(res, 200, { ok: true, id: -localId });
   }
-  const inserted = await db.query(`INSERT INTO crescer_agendas (agenda_date,class_id,subject_id,subject_component,teacher_name,content,materials,notes,no_agenda,created_by,created_by_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$12) RETURNING id`, values);
+  const inserted = await db.query(`INSERT INTO crescer_agendas (agenda_date,class_id,subject_id,subject_ids,subject_component,teacher_name,content,materials,notes,no_agenda,created_by,created_by_name,created_at,updated_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$13) RETURNING id`, values);
   return json(res, 201, { ok: true, id: -Number(inserted.rows[0].id) });
 }
 
