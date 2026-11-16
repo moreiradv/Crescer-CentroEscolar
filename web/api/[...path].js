@@ -87,7 +87,8 @@ function key(value) {
 
 function requestPath(req) {
   const path = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path || '');
-  return `/api/${path}`;
+  const normalized = path.replace(/^\/+/, '').replace(/^api\//, '');
+  return `/api/${normalized}`;
 }
 
 async function body(req) {
@@ -129,6 +130,7 @@ async function proxy(req, res, path) {
   const result = await upstream(req, path, { body: outgoingBody });
   res.status(result.status).setHeader('content-type', result.contentType);
   res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-educlass-proxy-path', path);
   return res.end(JSON.stringify(result.data));
 }
 
