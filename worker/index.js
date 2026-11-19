@@ -413,6 +413,18 @@ async function replaceAgendaSubjects(db, agendaId, subjectIds, now = Date.now())
   await db.batch(operations);
 }
 
+function agendaChangeSnapshot(row) {
+  if (!row) return null;
+  const copy = { ...row };
+  if (typeof copy.materials === 'string') try { copy.materials = JSON.parse(copy.materials); } catch { copy.materials = []; }
+  return copy;
+}
+
+async function recordAgendaChange(db, agendaId, action, actorId, before = null, after = null) {
+  await db.prepare(`INSERT INTO agenda_change_history (agenda_id, action, actor_user_id, before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(agendaId, action, actorId, before ? JSON.stringify(agendaChangeSnapshot(before)) : null, after ? JSON.stringify(agendaChangeSnapshot(after)) : null, Date.now()).run();
+}
+
 async function conflictingAgenda(db, date, classId, subjectIds, exceptId = 0) {
   const candidates = (await db.prepare(`SELECT id, subject_id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 0 AND id != ?`).bind(date, classId, exceptId).all()).results;
   if (!candidates.length) return null;
@@ -1161,46 +1173,64 @@ async function handleApi(request, env, path) {
   if (path === "/api/agendas" && request.method === "POST") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const now = Date.now();
+    const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : []; const agendaStatus = ["Rascunho", "Concluída", "Arquivada"].includes(String(body.status || "")) ? String(body.status) : "Concluída"; const now = Date.now();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1) return json({ error: "Preencha somente a data e a turma para identificar o registro." }, 400);
     const validation = await validateAgendaSubjects(db, auth.user, classId, subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 400);
     const context = { klass: validation.klass, educationStage: validation.stage, subject: validation.selected[0] || null };
     const conflict = noAgenda ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? LIMIT 1`).bind(date, classId).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 1 LIMIT 1`).bind(date, classId).first(); if (conflict) return json({ error: noAgenda ? "Já existe uma agenda para esta turma e data. Edite ou remova o registro antes de marcar ‘Não tem agenda’." : "Esta turma e data estão marcadas como ‘Não tem agenda’. Edite esse registro antes de adicionar conteúdo." }, 409);
     const duplicate = await conflictingAgenda(db, date, classId, subjectIds); if (duplicate) return json({ error: "Já existe um registro equivalente para esta turma, data e disciplina. Edite o lançamento existente." }, 409);
-    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, no_agenda, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'Concluída', ?, ?, ?, ?, ?)`)
-      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, now, now).run();
+    const result = await db.prepare(`INSERT INTO agenda_entries (agenda_date, class_id, subject, subject_id, subject_component, education_stage, school_year, grade_level, teacher_name, content, activity, homework, materials, status, no_agenda, notes, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), agendaStatus, noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, auth.user.id, now, now).run();
     const savedId = Number(result.meta.last_row_id); if (!savedId || Number(result.meta.changes || 0) !== 1) return json({ error: "O banco não confirmou o salvamento da agenda." }, 500);
     await replaceAgendaSubjects(db, savedId, subjectIds, now);
     const saved = await db.prepare(`SELECT a.*, c.name AS class_name, u.name AS created_by_name FROM agenda_entries a LEFT JOIN classes c ON c.id = a.class_id LEFT JOIN users u ON u.id = a.created_by WHERE a.id = ?`).bind(savedId).first();
     if (!saved) return json({ error: "A agenda não pôde ser recuperada após o salvamento." }, 500);
+    await recordAgendaChange(db, savedId, "create", auth.user.id, null, saved);
     await audit(db, auth.user.id, "agenda_created", savedId, content); return json({ ok: true, id: savedId, agenda: (await agendaSubjectsForRows(db, [saved]))[0] }, 201);
+  }
+
+  if (path === "/api/agenda-history" && request.method === "GET") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const result = await db.prepare(`SELECT h.id, 'local' AS agenda_source, h.agenda_id, h.action, h.before_json, h.after_json, h.created_at, u.id AS actor_id, u.name AS actor_name FROM agenda_change_history h LEFT JOIN users u ON u.id = h.actor_user_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1000`).all();
+    return json({ history: result.results.map(item => ({ ...item, before_data: item.before_json ? JSON.parse(item.before_json) : null, after_data: item.after_json ? JSON.parse(item.after_json) : null })) });
+  }
+
+  const agendaHistoryMatch = path.match(/^\/api\/agendas\/(\d+)\/history$/);
+  if (agendaHistoryMatch && request.method === "GET") {
+    const auth = await requireManager(request, db); if (auth.error) return auth.error;
+    const result = await db.prepare(`SELECT h.id, h.action, h.before_json, h.after_json, h.created_at, u.id AS actor_id, u.name AS actor_name FROM agenda_change_history h LEFT JOIN users u ON u.id = h.actor_user_id WHERE h.agenda_id = ? ORDER BY h.created_at DESC, h.id DESC`).bind(Number(agendaHistoryMatch[1])).all();
+    return json({ history: result.results.map(item => ({ ...item, before_data: item.before_json ? JSON.parse(item.before_json) : null, after_data: item.after_json ? JSON.parse(item.after_json) : null })) });
   }
 
   const agendaMatch = path.match(/^\/api\/agendas\/(\d+)$/);
   if (agendaMatch && request.method === "PUT") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const id = Number(agendaMatch[1]); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
+    const id = Number(agendaMatch[1]); const before = await db.prepare(`SELECT * FROM agenda_entries WHERE id = ?`).bind(id).first(); if (!before) return json({ error: "Agenda não encontrada." }, 404); const body = await readJson(request); const date = String(body.date || ""); const classId = Number(body.classId); const subjectIds = agendaSubjectIds(body); const subjectId = subjectIds[0] || null; const noAgenda = !!body.noAgenda; const content = noAgenda ? "Não tem agenda" : String(body.agenda || body.content || "").trim() || "Agenda registrada"; const materials = noAgenda ? [] : Array.isArray(body.materials) ? body.materials.map(String).slice(0, 20) : [];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(classId) || classId < 1) return json({ error: "Preencha somente a data e a turma para identificar o registro." }, 400);
     const validation = await validateAgendaSubjects(db, auth.user, classId, subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 400);
     const context = { klass: validation.klass, educationStage: validation.stage, subject: validation.selected[0] || null };
     const conflict = noAgenda ? await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND id != ? LIMIT 1`).bind(date, classId, id).first() : await db.prepare(`SELECT id FROM agenda_entries WHERE agenda_date = ? AND class_id = ? AND no_agenda = 1 AND id != ? LIMIT 1`).bind(date, classId, id).first(); if (conflict) return json({ error: noAgenda ? "Já existe outra agenda para esta turma e data." : "Esta turma e data já possuem outro registro ‘Não tem agenda’." }, 409);
     const duplicate = await conflictingAgenda(db, date, classId, subjectIds, id); if (duplicate) return json({ error: "Já existe outro registro equivalente para esta turma, data e disciplina." }, 409);
-    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = NULL, homework = NULL, materials = ?, status = 'Concluída', no_agenda = ?, notes = ?, updated_at = ? WHERE id = ?`)
-      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), noAgenda ? 1 : 0, String(body.notes || "").trim() || null, Date.now(), id).run();
+    const status = ["Rascunho", "Concluída", "Arquivada"].includes(String(body.status || "")) ? String(body.status) : "Concluída";
+    const result = await db.prepare(`UPDATE agenda_entries SET agenda_date = ?, class_id = ?, subject = ?, subject_id = ?, subject_component = ?, education_stage = ?, school_year = ?, grade_level = ?, teacher_name = ?, content = ?, activity = NULL, homework = NULL, materials = ?, status = ?, no_agenda = ?, notes = ?, updated_by = ?, updated_at = ? WHERE id = ?`)
+      .bind(date, classId, validation.selected.map(subject => subject.name).join(", ") || "Sem disciplina", subjectId, subjectIds.length === 1 ? String(body.subjectComponent || "").trim() || null : null, context.educationStage, context.klass.school_year, context.klass.grade_level, String(body.teacherName || "").trim() || context.klass.teacher_name || auth.user.name, content, JSON.stringify(materials), status, noAgenda ? 1 : 0, String(body.notes || "").trim() || null, auth.user.id, Date.now(), id).run();
     if (!result.meta.changes) return json({ error: "Agenda não encontrada." }, 404);
     await replaceAgendaSubjects(db, id, subjectIds);
+    const after = await db.prepare(`SELECT * FROM agenda_entries WHERE id = ?`).bind(id).first();
+    await recordAgendaChange(db, id, "update", auth.user.id, before, after);
     await audit(db, auth.user.id, "agenda_updated", id, content); return json({ ok: true });
   }
 
   if (agendaMatch && request.method === "DELETE") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
-    const id = Number(agendaMatch[1]); const existing = await db.prepare(`SELECT content, class_id, subject_id FROM agenda_entries WHERE id = ?`).bind(id).first();
+    const id = Number(agendaMatch[1]); const existing = await db.prepare(`SELECT * FROM agenda_entries WHERE id = ?`).bind(id).first();
     if (!existing) return json({ error: "Agenda não encontrada." }, 404);
     const links = (await db.prepare(`SELECT subject_id FROM agenda_subjects WHERE agenda_id = ?`).bind(id).all()).results.map(item => Number(item.subject_id));
     const subjectIds = links.length ? links : existing.subject_id ? [Number(existing.subject_id)] : [];
     const validation = await validateAgendaSubjects(db, auth.user, Number(existing.class_id), subjectIds); if (validation.error) return json({ error: validation.error }, validation.status || 403);
-    await db.prepare(`DELETE FROM agenda_entries WHERE id = ?`).bind(id).run(); await audit(db, auth.user.id, "agenda_deleted", id, existing.content); return json({ ok: true });
+    await recordAgendaChange(db, id, "delete", auth.user.id, existing, null);
+    const deleted = await db.prepare(`DELETE FROM agenda_entries WHERE id = ?`).bind(id).run(); if (!deleted.meta.changes) return json({ error: "O banco não confirmou a exclusão definitiva." }, 500); await audit(db, auth.user.id, "agenda_deleted", id, existing.content); return json({ ok: true, permanentlyDeleted: true });
   }
 
   if (path === "/api/attendance" && request.method === "GET") {

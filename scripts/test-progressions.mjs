@@ -124,6 +124,26 @@ const teacherLibraryRead = await requestApi("/api/library-books", { headers: { "
 assert.equal(teacherLibraryRead.response.status, 200);
 const teacherLibraryWrite = await requestApi("/api/library-books", { method: "POST", headers: { "x-teacher-assignment-id": "1" }, body: JSON.stringify({ title: "Livro proibido", author: "Autor" }) }, teacherToken);
 assert.equal(teacherLibraryWrite.response.status, 403);
+const repeatedAgenda = await api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-10", classId: 3, subjectIds: [1], agenda: "Versão inicial", materials: ["Livro"], status: "Rascunho" }) });
+const siblingAgenda = await api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-10", classId: 3, subjectIds: [2], agenda: "Agenda independente", materials: [], status: "Concluída" }) });
+for (const [content, status] of [["Primeira edição", "Rascunho"], ["Segunda edição", "Concluída"], ["Terceira edição final", "Arquivada"]]) {
+  await api(`/api/agendas/${repeatedAgenda.id}`, { method: "PUT", body: JSON.stringify({ date: "2026-11-10", classId: 3, subjectIds: [1], agenda: content, materials: ["Livro"], status }) });
+}
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_entries WHERE id=?`).get(repeatedAgenda.id).total, 1);
+assert.equal(database.prepare(`SELECT content FROM agenda_entries WHERE id=?`).get(repeatedAgenda.id).content, "Terceira edição final");
+assert.equal(database.prepare(`SELECT status FROM agenda_entries WHERE id=?`).get(repeatedAgenda.id).status, "Arquivada");
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_change_history WHERE agenda_id=? AND action='update'`).get(repeatedAgenda.id).total, 3);
+const repeatedHistory = await api(`/api/agendas/${repeatedAgenda.id}/history`);
+assert.equal(repeatedHistory.history.length, 4);
+const permanentDelete = await api(`/api/agendas/${repeatedAgenda.id}`, { method: "DELETE" });
+assert.equal(permanentDelete.permanentlyDeleted, true);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_entries WHERE id=?`).get(repeatedAgenda.id).total, 0);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_entries WHERE id=?`).get(siblingAgenda.id).total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_change_history WHERE agenda_id=? AND action='delete'`).get(repeatedAgenda.id).total, 1);
+const afterAgendaDelete = await api("/api/agendas");
+assert.equal(afterAgendaDelete.agendas.some(item => item.id === repeatedAgenda.id), false);
+const completeAgendaHistory = await api("/api/agenda-history");
+assert.equal(completeAgendaHistory.history.some(item => Number(item.agenda_id) === repeatedAgenda.id && item.action === "delete"), true);
 database.prepare(`DELETE FROM teacher_assignments WHERE user_id=2`).run();
 const subjects = (await api("/api/academic-config")).subjects;
 const subjectId = name => subjects.find(item => item.name === name && item.education_stage === "Ensino Fundamental").id;
@@ -162,4 +182,4 @@ assert.equal(managerUsers.response.status, 200);
 assert.equal(managerUsers.body.users.find(user => user.username === "gestao").role, "Gestão Escolar");
 const managerProgressions = await requestApi("/api/progressions", {}, managerToken);
 assert.equal(managerProgressions.response.status, 200);
-console.log("Integration tests passed: six persistent teacher assignments across 2026-2029, edit/reactivation without data loss, post-login recovery, strict server scope, progression/history, multidisciplinary agenda and read-only teacher library.");
+console.log("Integration tests passed: persistent teacher assignments, strict server scope, progression/history, multidisciplinary agendas, repeated agenda edits, permanent deletion with audit trail, and read-only teacher library.");

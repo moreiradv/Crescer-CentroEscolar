@@ -62,13 +62,45 @@ export async function ensureSchema() {
       materials JSONB NOT NULL DEFAULT '[]'::jsonb,
       notes TEXT,
       no_agenda BOOLEAN NOT NULL DEFAULT FALSE,
+      agenda_status TEXT NOT NULL DEFAULT 'Concluída',
       created_by BIGINT NOT NULL,
       created_by_name TEXT NOT NULL,
+      updated_by BIGINT,
+      updated_by_name TEXT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS crescer_agendas_date_class_idx ON crescer_agendas (agenda_date, class_id);
     ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS agenda_status TEXT NOT NULL DEFAULT 'Concluída';
+    ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS updated_by BIGINT;
+    ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS updated_by_name TEXT;
+    CREATE TABLE IF NOT EXISTS crescer_agenda_history (
+      id BIGSERIAL PRIMARY KEY,
+      agenda_source TEXT NOT NULL,
+      agenda_id BIGINT NOT NULL,
+      action TEXT NOT NULL,
+      actor_id BIGINT NOT NULL,
+      actor_name TEXT NOT NULL,
+      before_data JSONB,
+      after_data JSONB,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crescer_agenda_history_agenda_idx ON crescer_agenda_history (agenda_source, agenda_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS crescer_agenda_tombstones (
+      upstream_agenda_id BIGINT PRIMARY KEY,
+      deleted_by BIGINT NOT NULL,
+      deleted_by_name TEXT NOT NULL,
+      deleted_at BIGINT NOT NULL,
+      snapshot JSONB NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS crescer_agenda_upstream_overrides (
+      upstream_agenda_id BIGINT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      updated_by BIGINT NOT NULL,
+      updated_by_name TEXT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS crescer_teacher_assignment_details (
       upstream_assignment_id BIGINT PRIMARY KEY,
       user_id BIGINT NOT NULL,
@@ -348,16 +380,40 @@ function decorateAgenda(row, context) {
     subject: subjects.map(subject => subject.name).join(', ') || 'Sem disciplina',
     materials: Array.isArray(row.materials) ? row.materials : [],
     no_agenda: row.no_agenda ? 1 : 0,
+    status: row.agenda_status || row.status || 'Concluída',
+    agenda_source: 'local',
   };
 }
 
+function agendaSnapshot(row) {
+  if (!row) return null;
+  const fields = ['id','agenda_date','class_id','class_name','school_year','grade_level','subject_id','subject_ids','subject_names','subject_component','teacher_name','content','materials','notes','no_agenda','status','created_by','created_by_name','updated_by','updated_by_name','created_at','updated_at'];
+  return Object.fromEntries(fields.map(field => [field, row[field] ?? null]));
+}
+
+async function recordAgendaHistory(db, source, agendaId, action, user, beforeData = null, afterData = null) {
+  await db.query('INSERT INTO crescer_agenda_history (agenda_source,agenda_id,action,actor_id,actor_name,before_data,after_data,created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)', [source, Number(agendaId), action, Number(user.id), user.name, beforeData ? JSON.stringify(agendaSnapshot(beforeData)) : null, afterData ? JSON.stringify(agendaSnapshot(afterData)) : null, Date.now()]);
+}
+
+function canChangeAgenda(user, agenda) {
+  if (MANAGER_ROLES.has(user.role)) return true;
+  if (user.role !== 'Professor') return false;
+  const assignments = (user.assignments || (user.assignment ? [user.assignment] : [])).filter(item => item.status !== 'inactive' && Number(item.class_id) === Number(agenda.class_id) && Number(item.can_agenda));
+  const subjectIds = Array.isArray(agenda.subject_ids) && agenda.subject_ids.length ? agenda.subject_ids.map(Number) : agenda.subject_id ? [Number(agenda.subject_id)] : [];
+  return assignments.some(item => !item.subject_id || !subjectIds.length || subjectIds.includes(Number(item.subject_id)));
+}
+
 async function allAgendas(req, context, user) {
-  const [oldResponse, localResult] = await Promise.all([
+  const [oldResponse, localResult, tombstoneResult, overrideResult] = await Promise.all([
     upstream(req, '/api/agendas', { method: 'GET', copyQuery: false }),
     ensureSchema().then(db => db.query('SELECT * FROM crescer_agendas ORDER BY agenda_date DESC, id DESC')),
+    ensureSchema().then(db => db.query('SELECT upstream_agenda_id FROM crescer_agenda_tombstones')),
+    ensureSchema().then(db => db.query('SELECT upstream_agenda_id,payload FROM crescer_agenda_upstream_overrides')),
   ]);
   if (oldResponse.status === 401 || oldResponse.status === 403) throw Object.assign(new Error(oldResponse.data.error || 'Acesso negado.'), { status: oldResponse.status });
-  const oldRows = oldResponse.status === 200 ? oldResponse.data.agendas || [] : [];
+  const tombstones = new Set(tombstoneResult.rows.map(item => Number(item.upstream_agenda_id)));
+  const overrides = new Map(overrideResult.rows.map(item => [Number(item.upstream_agenda_id), item.payload]));
+  const oldRows = oldResponse.status === 200 ? (oldResponse.data.agendas || []).filter(item => !tombstones.has(Number(item.id))).map(item => ({ ...item, ...(overrides.get(Number(item.id)) || {}), id: Number(item.id), status: overrides.get(Number(item.id))?.status || item.status || 'Concluída', agenda_source: 'upstream' })) : [];
   let localRows = localResult.rows.map(row => decorateAgenda(row, context));
   if (user.role === 'Professor') {
     const assignment = user.assignment;
@@ -371,6 +427,13 @@ async function handleAgendas(req, res, path) {
   const user = await requireUser(req, PEDAGOGICAL_ROLES);
   const context = await academicContext(req);
   if (path === '/api/agendas' && req.method === 'GET') return json(res, 200, { agendas: await allAgendas(req, context, user) });
+
+  if (path === '/api/agenda-history' && req.method === 'GET') {
+    if (!MANAGER_ROLES.has(user.role)) return json(res, 403, { error: 'O histórico completo é exclusivo da Gestão Escolar.' });
+    const db = await ensureSchema();
+    const result = await db.query('SELECT id,agenda_source,agenda_id,action,actor_id,actor_name,before_data,after_data,created_at FROM crescer_agenda_history ORDER BY created_at DESC,id DESC LIMIT 1000');
+    return json(res, 200, { history: result.rows });
+  }
 
   if (path === '/api/agenda-status' && req.method === 'GET') {
     const date = String(req.query.date || '').slice(0, 10);
@@ -387,22 +450,54 @@ async function handleAgendas(req, res, path) {
     return json(res, 200, { date, statuses });
   }
 
+  const historyMatch = path.match(/^\/api\/agendas\/(-?\d+)\/history$/);
+  if (historyMatch && req.method === 'GET') {
+    if (!MANAGER_ROLES.has(user.role)) return json(res, 403, { error: 'O histórico completo é exclusivo da Gestão Escolar.' });
+    const rawId = Number(historyMatch[1]), source = rawId < 0 ? 'local' : 'upstream', agendaId = Math.abs(rawId), db = await ensureSchema();
+    const result = await db.query('SELECT id,action,actor_id,actor_name,before_data,after_data,created_at FROM crescer_agenda_history WHERE agenda_source=$1 AND agenda_id=$2 ORDER BY created_at DESC,id DESC', [source, agendaId]);
+    return json(res, 200, { history: result.rows });
+  }
+
   const match = path.match(/^\/api\/agendas\/(-?\d+)$/);
+  if (match && Number(match[1]) > 0 && (req.method === 'PUT' || req.method === 'DELETE')) {
+    const agendaId = Number(match[1]), db = await ensureSchema(), before = (await allAgendas(req, context, user)).find(item => Number(item.id) === agendaId);
+    if (!before) return json(res, 404, { error: 'Agenda não encontrada ou já excluída.' });
+    if (!canChangeAgenda(user, before)) return json(res, 403, { error: 'Sua conta não possui autorização para modificar esta agenda.' });
+    if (req.method === 'DELETE') {
+      const deleted = await upstream(req, path, { method: 'DELETE', copyQuery: false, body: {} });
+      if (deleted.status >= 300 && deleted.status !== 404) return json(res, deleted.status, deleted.data);
+      await db.query(`INSERT INTO crescer_agenda_tombstones (upstream_agenda_id,deleted_by,deleted_by_name,deleted_at,snapshot) VALUES ($1,$2,$3,$4,$5::jsonb)
+        ON CONFLICT (upstream_agenda_id) DO UPDATE SET deleted_by=EXCLUDED.deleted_by,deleted_by_name=EXCLUDED.deleted_by_name,deleted_at=EXCLUDED.deleted_at,snapshot=EXCLUDED.snapshot`, [agendaId, Number(user.id), user.name, Date.now(), JSON.stringify(agendaSnapshot(before))]);
+      await db.query('DELETE FROM crescer_agenda_upstream_overrides WHERE upstream_agenda_id=$1', [agendaId]);
+      await recordAgendaHistory(db, 'upstream', agendaId, 'delete', user, before, null);
+      return json(res, 200, { ok: true, permanentlyDeleted: true });
+    }
+    const input = await body(req), updated = await upstream(req, path, { method: 'PUT', copyQuery: false, body: input });
+    if (updated.status >= 300) return json(res, updated.status, updated.data);
+    const after = { ...before, agenda_date: String(input.date || before.agenda_date), class_id: Number(input.classId || before.class_id), subject_id: Number(input.subjectId) || null, subject_ids: Array.isArray(input.subjectIds) ? input.subjectIds.map(Number).filter(Boolean) : before.subject_ids, subject_component: text(input.subjectComponent, 240), teacher_name: text(input.teacherName, 240) || before.teacher_name, content: input.noAgenda ? 'Não tem agenda' : text(input.agenda) || 'Agenda registrada', materials: input.noAgenda ? [] : Array.isArray(input.materials) ? input.materials : before.materials, notes: text(input.notes), no_agenda: input.noAgenda ? 1 : 0, status: text(input.status, 40) || before.status || 'Concluída', updated_by: Number(user.id), updated_by_name: user.name, updated_at: Date.now() };
+    await db.query(`INSERT INTO crescer_agenda_upstream_overrides (upstream_agenda_id,payload,updated_by,updated_by_name,updated_at) VALUES ($1,$2::jsonb,$3,$4,$5)
+      ON CONFLICT (upstream_agenda_id) DO UPDATE SET payload=EXCLUDED.payload,updated_by=EXCLUDED.updated_by,updated_by_name=EXCLUDED.updated_by_name,updated_at=EXCLUDED.updated_at`, [agendaId, JSON.stringify(agendaSnapshot(after)), Number(user.id), user.name, after.updated_at]);
+    await recordAgendaHistory(db, 'upstream', agendaId, 'update', user, before, after);
+    return json(res, 200, { ok: true, id: agendaId, agenda: after });
+  }
   if (match && Number(match[1]) > 0) return proxy(req, res, path);
   if (!((path === '/api/agendas' && req.method === 'POST') || (match && req.method === 'PUT') || (match && req.method === 'DELETE'))) return null;
   const db = await ensureSchema();
   const localId = match ? Math.abs(Number(match[1])) : 0;
   if (req.method === 'DELETE') {
-    const existing = await db.query('SELECT class_id,subject_id,subject_ids FROM crescer_agendas WHERE id=$1', [localId]);
+    const existing = await db.query('SELECT * FROM crescer_agendas WHERE id=$1', [localId]);
     if (!existing.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
-    if (user.role === 'Professor') {
-      const assignment = user.assignment, row = existing.rows[0];
-      const ids = Array.isArray(row.subject_ids) && row.subject_ids.length ? row.subject_ids.map(Number) : row.subject_id ? [Number(row.subject_id)] : [];
-      if (!assignment || Number(row.class_id) !== Number(assignment.class_id) || (assignment.subject_id && !ids.includes(Number(assignment.subject_id)))) return json(res, 403, { error: 'Sua conta não possui acesso a este registro.' });
-      if (!assignment.can_agenda) return json(res, 403, { error: 'A Agenda Escolar não está habilitada para esta atribuição.' });
-    }
-    await db.query('DELETE FROM crescer_agendas WHERE id = $1', [localId]);
-    return json(res, 200, { ok: true });
+    const before = decorateAgenda(existing.rows[0], context);
+    if (!canChangeAgenda(user, before)) return json(res, 403, { error: 'Sua conta não possui autorização para excluir esta agenda.' });
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('INSERT INTO crescer_agenda_history (agenda_source,agenda_id,action,actor_id,actor_name,before_data,after_data,created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,NULL,$7)', ['local', localId, 'delete', Number(user.id), user.name, JSON.stringify(agendaSnapshot(before)), Date.now()]);
+      const deleted = await client.query('DELETE FROM crescer_agendas WHERE id=$1 RETURNING id', [localId]);
+      if (!deleted.rowCount) throw Object.assign(new Error('Agenda não encontrada.'), { status: 404 });
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+    return json(res, 200, { ok: true, permanentlyDeleted: true });
   }
 
   const input = await body(req);
@@ -431,15 +526,33 @@ async function handleAgendas(req, res, path) {
 
   const content = noAgenda ? 'Não tem agenda' : text(input.agenda) || 'Agenda registrada';
   const materials = noAgenda ? [] : (Array.isArray(input.materials) ? input.materials.map(item => String(item).slice(0, 240)).slice(0, 30) : []);
+  const agendaStatus = ['Rascunho', 'Concluída', 'Arquivada'].includes(String(input.status || '')) ? String(input.status) : 'Concluída';
   const now = Date.now();
-  const values = [agendaDate, classId, subjectId, JSON.stringify(subjectIds), subjectIds.length === 1 ? text(input.subjectComponent, 240) : null, text(input.teacherName, 240) || klass.teacher_name || user.name, content, JSON.stringify(materials), text(input.notes), noAgenda, Number(user.id), user.name, now];
+  const values = [agendaDate, classId, subjectId, JSON.stringify(subjectIds), subjectIds.length === 1 ? text(input.subjectComponent, 240) : null, text(input.teacherName, 240) || klass.teacher_name || user.name, content, JSON.stringify(materials), text(input.notes), noAgenda, agendaStatus];
   if (localId) {
-    const updated = await db.query(`UPDATE crescer_agendas SET agenda_date=$1,class_id=$2,subject_id=$3,subject_ids=$4::jsonb,subject_component=$5,teacher_name=$6,content=$7,materials=$8::jsonb,notes=$9,no_agenda=$10,created_by=$11,created_by_name=$12,updated_at=$13 WHERE id=$14 RETURNING id`, [...values, localId]);
+    const beforeResult = await db.query('SELECT * FROM crescer_agendas WHERE id=$1', [localId]);
+    if (!beforeResult.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
+    const before = decorateAgenda(beforeResult.rows[0], context);
+    if (!canChangeAgenda(user, before)) return json(res, 403, { error: 'Sua conta não possui autorização para editar esta agenda.' });
+    const updated = await db.query(`UPDATE crescer_agendas SET agenda_date=$1,class_id=$2,subject_id=$3,subject_ids=$4::jsonb,subject_component=$5,teacher_name=$6,content=$7,materials=$8::jsonb,notes=$9,no_agenda=$10,agenda_status=$11,updated_by=$12,updated_by_name=$13,updated_at=$14 WHERE id=$15 RETURNING *`, [...values, Number(user.id), user.name, now, localId]);
     if (!updated.rowCount) return json(res, 404, { error: 'Agenda não encontrada.' });
-    return json(res, 200, { ok: true, id: -localId });
+    const after = decorateAgenda(updated.rows[0], context);
+    await recordAgendaHistory(db, 'local', localId, 'update', user, before, after);
+    return json(res, 200, { ok: true, id: -localId, agenda: after });
   }
-  const inserted = await db.query(`INSERT INTO crescer_agendas (agenda_date,class_id,subject_id,subject_ids,subject_component,teacher_name,content,materials,notes,no_agenda,created_by,created_by_name,created_at,updated_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$13) RETURNING id`, values);
-  return json(res, 201, { ok: true, id: -Number(inserted.rows[0].id) });
+  const inserted = await db.query(`INSERT INTO crescer_agendas (agenda_date,class_id,subject_id,subject_ids,subject_component,teacher_name,content,materials,notes,no_agenda,agenda_status,created_by,created_by_name,updated_by,updated_by_name,created_at,updated_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$12,$13,$14,$14) RETURNING *`, [...values, Number(user.id), user.name, now]);
+  const saved = decorateAgenda(inserted.rows[0], context);
+  await recordAgendaHistory(db, 'local', Number(inserted.rows[0].id), 'create', user, null, saved);
+  return json(res, 201, { ok: true, id: -Number(inserted.rows[0].id), agenda: saved });
+}
+
+async function handleSummary(req, res, path) {
+  if (path !== '/api/summary' || req.method !== 'GET') return null;
+  const user = await requireUser(req, PEDAGOGICAL_ROLES), context = await academicContext(req);
+  const result = await upstream(req, path, { method: 'GET', copyQuery: false });
+  if (result.status !== 200) return json(res, result.status, result.data);
+  const agendas = await allAgendas(req, context, user);
+  return json(res, 200, { ...result.data, agendas: agendas.length });
 }
 
 function bookResponse(row) {
@@ -494,11 +607,15 @@ export default async function handler(req, res) {
       const response = await handleTeacherSession(req, res, path);
       if (response !== null) return response;
     }
+    if (path === '/api/summary') {
+      const response = await handleSummary(req, res, path);
+      if (response !== null) return response;
+    }
     if (path === '/api/library-books' || /^\/api\/library-books\/\d+$/.test(path)) {
       const response = await handleLibrary(req, res, path);
       if (response !== null) return response;
     }
-    if (path === '/api/agendas' || path === '/api/agenda-status' || /^\/api\/agendas\/-?\d+$/.test(path)) {
+    if (path === '/api/agendas' || path === '/api/agenda-status' || path === '/api/agenda-history' || /^\/api\/agendas\/-?\d+(?:\/history)?$/.test(path)) {
       const response = await handleAgendas(req, res, path);
       if (response !== null) return response;
     }
