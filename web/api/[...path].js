@@ -614,7 +614,7 @@ async function syncUpstreamStudents(req, db) {
     const studentId = Number(row.id);
     if (!studentId) continue;
     await db.query(`INSERT INTO crescer_students (id,registration,name,birth_date,guardian_name,guardian_phone,mother_name,father_name,guardian_email,address,enrollment_notes,current_class_id,status,created_at,updated_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) ON CONFLICT (id) DO NOTHING`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) ON CONFLICT DO NOTHING`,
       [studentId, row.registration || `ALUNO-${studentId}`, row.name || 'Aluno', row.birth_date || null, row.guardian_name || null, row.guardian_phone || null, row.mother_name || null, row.father_name || null, row.guardian_email || null, row.address || null, row.enrollment_notes || null, Number(row.current_class_id || row.class_id) || null, row.status || 'active', Number(row.created_at) || now]);
     const year = Number(row.school_year), classId = Number(row.membership_class_id || row.class_id), membershipId = Number(row.membership_id);
     if (OFFICIAL_SCHOOL_YEARS.includes(year) && classId) {
