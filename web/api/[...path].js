@@ -147,7 +147,8 @@ function officialGrade(value) {
 }
 
 function requestPath(req) {
-  const path = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path || '');
+  const queryPath = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path || '');
+  const path = queryPath || new URL(req.url || '/', PUBLIC_ORIGIN).pathname;
   const normalized = path.replace(/^\/+/, '').replace(/^api\//, '');
   return `/api/${normalized}`;
 }
