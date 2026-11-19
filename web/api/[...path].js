@@ -118,6 +118,59 @@ export async function ensureSchema() {
       updated_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS crescer_teacher_assignment_user_idx ON crescer_teacher_assignment_details (user_id, status, school_year);
+    CREATE TABLE IF NOT EXISTS crescer_students (
+      id BIGINT PRIMARY KEY,
+      registration TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      birth_date TEXT,
+      guardian_name TEXT,
+      guardian_phone TEXT,
+      mother_name TEXT,
+      father_name TEXT,
+      guardian_email TEXT,
+      address TEXT,
+      enrollment_notes TEXT,
+      current_class_id BIGINT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_by BIGINT,
+      updated_by BIGINT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS crescer_student_memberships (
+      id BIGINT PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES crescer_students(id) ON DELETE CASCADE,
+      class_id BIGINT NOT NULL,
+      school_year INTEGER NOT NULL,
+      is_current BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      UNIQUE(student_id, school_year)
+    );
+    CREATE INDEX IF NOT EXISTS crescer_student_memberships_year_idx ON crescer_student_memberships (school_year,class_id);
+    CREATE TABLE IF NOT EXISTS crescer_student_change_history (
+      id BIGSERIAL PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES crescer_students(id) ON DELETE CASCADE,
+      membership_id BIGINT,
+      action TEXT NOT NULL,
+      actor_user_id BIGINT,
+      actor_name TEXT,
+      before_data JSONB,
+      after_data JSONB,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS crescer_student_annual_enrollments (
+      id BIGINT PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES crescer_students(id) ON DELETE CASCADE,
+      membership_id BIGINT NOT NULL REFERENCES crescer_student_memberships(id) ON DELETE CASCADE,
+      class_id BIGINT NOT NULL,
+      school_year INTEGER NOT NULL,
+      enrollment_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      UNIQUE(student_id, school_year)
+    );
   `).catch(error => { schemaPromise = null; throw error; });
   await schemaPromise;
   return db;
@@ -547,6 +600,178 @@ async function handleAgendas(req, res, path) {
   return json(res, 201, { ok: true, id: -Number(inserted.rows[0].id), agenda: saved });
 }
 
+async function nextLocalId(db, table) {
+  const result = await db.query(`SELECT GREATEST(COALESCE(MAX(id),0)+1,1000000000) AS id FROM ${table}`);
+  return Number(result.rows[0].id);
+}
+
+async function syncUpstreamStudents(req, db) {
+  const result = await upstream(req, '/api/students', { method: 'GET', copyQuery: false });
+  if (result.status === 401 || result.status === 403) throw Object.assign(new Error(result.data.error || 'Acesso negado.'), { status: result.status });
+  if (result.status !== 200) return;
+  const now = Date.now();
+  for (const row of result.data.students || []) {
+    const studentId = Number(row.id);
+    if (!studentId) continue;
+    await db.query(`INSERT INTO crescer_students (id,registration,name,birth_date,guardian_name,guardian_phone,mother_name,father_name,guardian_email,address,enrollment_notes,current_class_id,status,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) ON CONFLICT (id) DO NOTHING`,
+      [studentId, row.registration || `ALUNO-${studentId}`, row.name || 'Aluno', row.birth_date || null, row.guardian_name || null, row.guardian_phone || null, row.mother_name || null, row.father_name || null, row.guardian_email || null, row.address || null, row.enrollment_notes || null, Number(row.current_class_id || row.class_id) || null, row.status || 'active', Number(row.created_at) || now]);
+    const year = Number(row.school_year), classId = Number(row.membership_class_id || row.class_id), membershipId = Number(row.membership_id);
+    if (OFFICIAL_SCHOOL_YEARS.includes(year) && classId) {
+      const id = membershipId || await nextLocalId(db, 'crescer_student_memberships');
+      await db.query(`INSERT INTO crescer_student_memberships (id,student_id,class_id,school_year,is_current,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6) ON CONFLICT (student_id,school_year) DO NOTHING`, [id, studentId, classId, year, Boolean(Number(row.is_current)), Number(row.membership_created_at || row.created_at) || now]);
+    }
+  }
+}
+
+function studentOutput(row, context) {
+  const klass = context.classes.find(item => Number(item.id) === Number(row.class_id));
+  return {
+    id: Number(row.id), membership_id: Number(row.membership_id), registration: row.registration, name: row.name,
+    birth_date: row.birth_date, guardian_name: row.guardian_name, guardian_phone: row.guardian_phone,
+    mother_name: row.mother_name, father_name: row.father_name, guardian_email: row.guardian_email,
+    address: row.address, enrollment_notes: row.enrollment_notes, current_class_id: Number(row.current_class_id) || null,
+    membership_class_id: Number(row.class_id), class_id: Number(row.class_id), class_name: klass?.name || 'Turma removida',
+    grade_level: klass?.grade_level || klass?.name || null, shift: klass?.shift || null, school_year: Number(row.school_year),
+    is_current: row.is_current ? 1 : 0, status: row.status, created_at: Number(row.created_at), updated_at: Number(row.updated_at),
+  };
+}
+
+async function studentRows(db, context, filters = {}) {
+  const values = [], where = [`s.status <> 'inactive'`];
+  if (filters.year) { values.push(Number(filters.year)); where.push(`m.school_year=$${values.length}`); }
+  if (filters.classId) { values.push(Number(filters.classId)); where.push(`m.class_id=$${values.length}`); }
+  const result = await db.query(`SELECT s.*,m.id AS membership_id,m.class_id,m.school_year,m.is_current,m.created_at AS membership_created_at
+    FROM crescer_students s JOIN crescer_student_memberships m ON m.student_id=s.id WHERE ${where.join(' AND ')} ORDER BY m.school_year DESC,s.name`, values);
+  return result.rows.map(row => studentOutput(row, context));
+}
+
+async function recordStudentHistory(db, studentId, membershipId, action, user, beforeData, afterData) {
+  await db.query('INSERT INTO crescer_student_change_history (student_id,membership_id,action,actor_user_id,actor_name,before_data,after_data,created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)', [studentId, membershipId || null, action, Number(user.id), user.name, beforeData ? JSON.stringify(beforeData) : null, afterData ? JSON.stringify(afterData) : null, Date.now()]);
+}
+
+async function createAnnualEnrollment(db, studentId, membershipId, classId, schoolYear, now) {
+  const id = await nextLocalId(db, 'crescer_student_annual_enrollments');
+  await db.query(`INSERT INTO crescer_student_annual_enrollments (id,student_id,membership_id,class_id,school_year,enrollment_date,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$7) ON CONFLICT (student_id,school_year) DO NOTHING`, [id, studentId, membershipId, classId, schoolYear, `${schoolYear}-01-01`, now]);
+}
+
+async function handleStudents(req, res, path) {
+  const user = await requireUser(req, PEDAGOGICAL_ROLES), db = await ensureSchema(), context = await academicContext(req);
+  await syncUpstreamStudents(req, db);
+  if (path === '/api/school-years' && req.method === 'GET') {
+    const counts = await db.query(`SELECT m.school_year,COUNT(DISTINCT m.class_id)::int AS classes_count,COUNT(DISTINCT m.student_id)::int AS students_count,COUNT(e.id)::int AS enrollments_count FROM crescer_student_memberships m LEFT JOIN crescer_student_annual_enrollments e ON e.membership_id=m.id GROUP BY m.school_year`);
+    const byYear = new Map(counts.rows.map(row => [Number(row.school_year), row]));
+    return json(res, 200, { years: OFFICIAL_SCHOOL_YEARS.map(year => ({ year, label: String(year), status: 'active', classes_count: context.classes.filter(item => Number(item.school_year) === year && item.status !== 'inactive').length, students_count: byYear.get(year)?.students_count || 0, enrollments_count: byYear.get(year)?.enrollments_count || 0 })) });
+  }
+  if (path === '/api/students' && req.method === 'GET') {
+    let rows = await studentRows(db, context, { year: req.query.school_year, classId: req.query.class_id });
+    if (user.role === 'Professor') {
+      const allowed = new Set((user.assignments || []).filter(item => item.status !== 'inactive').map(item => Number(item.class_id)));
+      rows = rows.filter(item => allowed.has(Number(item.class_id)));
+    }
+    return json(res, 200, { students: rows });
+  }
+  const historyMatch = path.match(/^\/api\/students\/(\d+)\/history$/);
+  if (historyMatch && req.method === 'GET') {
+    const studentId = Number(historyMatch[1]);
+    let academic = await studentRows(db, context, {}); academic = academic.filter(item => item.id === studentId);
+    const changes = await db.query('SELECT id,action,actor_user_id,actor_name,before_data,after_data,created_at FROM crescer_student_change_history WHERE student_id=$1 ORDER BY created_at DESC,id DESC', [studentId]);
+    return json(res, 200, { history: academic, changes: changes.rows });
+  }
+  if (!MANAGER_ROLES.has(user.role)) return json(res, 403, { error: 'Somente a Gestão Escolar pode alterar cadastros de alunos.' });
+  if (path === '/api/students' && req.method === 'POST') {
+    const input = await body(req), classId = Number(input.classId), schoolYear = Number(input.schoolYear), klass = context.classes.find(item => Number(item.id) === classId && Number(item.school_year) === schoolYear);
+    if (!klass || !OFFICIAL_SCHOOL_YEARS.includes(schoolYear)) return json(res, 400, { error: 'Selecione uma turma e um ano letivo válidos.' });
+    const now = Date.now(), existingId = Number(input.existingStudentId);
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      if (existingId) {
+        const found = await client.query('SELECT * FROM crescer_students WHERE id=$1', [existingId]);
+        if (!found.rowCount) throw Object.assign(new Error('Aluno existente não encontrado.'), { status: 404 });
+        const duplicate = await client.query('SELECT id FROM crescer_student_memberships WHERE student_id=$1 AND school_year=$2', [existingId, schoolYear]);
+        if (duplicate.rowCount) throw Object.assign(new Error('Este aluno já possui vínculo neste ano letivo.'), { status: 409 });
+        const membershipId = await nextLocalId(client, 'crescer_student_memberships');
+        await client.query('UPDATE crescer_student_memberships SET is_current=FALSE,updated_at=$2 WHERE student_id=$1', [existingId, now]);
+        await client.query('INSERT INTO crescer_student_memberships (id,student_id,class_id,school_year,is_current,created_at,updated_at) VALUES ($1,$2,$3,$4,TRUE,$5,$5)', [membershipId, existingId, classId, schoolYear, now]);
+        await client.query('UPDATE crescer_students SET current_class_id=$1,updated_by=$2,updated_at=$3 WHERE id=$4', [classId, Number(user.id), now, existingId]);
+        await createAnnualEnrollment(client, existingId, membershipId, classId, schoolYear, now);
+        await recordStudentHistory(client, existingId, membershipId, 'year_linked', user, null, { class_id: classId, school_year: schoolYear });
+        await client.query('COMMIT');
+        return json(res, 201, { ok: true, id: existingId, membershipId });
+      }
+      const registration = text(input.registration, 120), name = text(input.name, 500);
+      if (!registration || !name) throw Object.assign(new Error('Informe a matrícula e o nome do aluno.'), { status: 400 });
+      const studentId = await nextLocalId(client, 'crescer_students'), membershipId = await nextLocalId(client, 'crescer_student_memberships');
+      await client.query(`INSERT INTO crescer_students (id,registration,name,birth_date,guardian_name,guardian_phone,mother_name,father_name,guardian_email,address,enrollment_notes,current_class_id,status,created_by,updated_by,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',$13,$13,$14,$14)`, [studentId, registration, name, input.birthDate || null, text(input.guardianName,500), text(input.guardianPhone,120), text(input.motherName,500), text(input.fatherName,500), text(input.guardianEmail,500), text(input.address), text(input.enrollmentNotes), classId, Number(user.id), now]);
+      await client.query('INSERT INTO crescer_student_memberships (id,student_id,class_id,school_year,is_current,created_at,updated_at) VALUES ($1,$2,$3,$4,TRUE,$5,$5)', [membershipId, studentId, classId, schoolYear, now]);
+      await createAnnualEnrollment(client, studentId, membershipId, classId, schoolYear, now);
+      await recordStudentHistory(client, studentId, membershipId, 'created', user, null, { registration, name, class_id: classId, school_year: schoolYear });
+      await client.query('COMMIT');
+      return json(res, 201, { ok: true, id: studentId, membershipId });
+    } catch (error) { await client.query('ROLLBACK'); if (error?.code === '23505') error = Object.assign(new Error('Já existe um aluno com esta matrícula.'), { status: 409 }); throw error; } finally { client.release(); }
+  }
+  const match = path.match(/^\/api\/students\/(\d+)$/);
+  if (!match) return null;
+  const studentId = Number(match[1]);
+  if (req.method === 'DELETE') {
+    await db.query("UPDATE crescer_students SET status='inactive',updated_by=$1,updated_at=$2 WHERE id=$3", [Number(user.id), Date.now(), studentId]);
+    await recordStudentHistory(db, studentId, null, 'inactivated', user, null, { status: 'inactive' });
+    return json(res, 200, { ok: true });
+  }
+  if (req.method !== 'PUT') return null;
+  const input = await body(req), membershipId = Number(input.membershipId), classId = Number(input.classId), schoolYear = Number(input.schoolYear);
+  const klass = context.classes.find(item => Number(item.id) === classId && Number(item.school_year) === schoolYear);
+  if (!klass) return json(res, 400, { error: 'Selecione uma turma compatível com o ano letivo.' });
+  const before = await db.query('SELECT s.*,m.class_id,m.school_year,m.id AS membership_id FROM crescer_students s JOIN crescer_student_memberships m ON m.student_id=s.id WHERE s.id=$1 AND m.id=$2', [studentId, membershipId]);
+  if (!before.rowCount) return json(res, 404, { error: 'Aluno ou vínculo anual não encontrado.' });
+  const now = Date.now();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE crescer_students SET registration=$1,name=$2,birth_date=$3,guardian_name=$4,guardian_phone=$5,mother_name=$6,father_name=$7,guardian_email=$8,address=$9,enrollment_notes=$10,updated_by=$11,updated_at=$12 WHERE id=$13`, [text(input.registration,120), text(input.name,500), input.birthDate || null, text(input.guardianName,500), text(input.guardianPhone,120), text(input.motherName,500), text(input.fatherName,500), text(input.guardianEmail,500), text(input.address), text(input.enrollmentNotes), Number(user.id), now, studentId]);
+    await client.query('UPDATE crescer_student_memberships SET class_id=$1,school_year=$2,updated_at=$3 WHERE id=$4 AND student_id=$5', [classId, schoolYear, now, membershipId, studentId]);
+    const latest = await client.query('SELECT class_id FROM crescer_student_memberships WHERE student_id=$1 ORDER BY school_year DESC LIMIT 1', [studentId]);
+    await client.query('UPDATE crescer_students SET current_class_id=$1 WHERE id=$2', [latest.rows[0]?.class_id || classId, studentId]);
+    await client.query('UPDATE crescer_student_annual_enrollments SET class_id=$1,school_year=$2,updated_at=$3 WHERE student_id=$4 AND membership_id=$5', [classId, schoolYear, now, studentId, membershipId]);
+    const after = { ...input, id: studentId, membership_id: membershipId, class_id: classId, school_year: schoolYear };
+    await recordStudentHistory(client, studentId, membershipId, 'updated', user, before.rows[0], after);
+    await client.query('COMMIT');
+    return json(res, 200, { ok: true, id: studentId, membershipId });
+  } catch (error) { await client.query('ROLLBACK'); if (error?.code === '23505') error = Object.assign(new Error('Já existe um aluno ou vínculo com estes dados.'), { status: 409 }); throw error; } finally { client.release(); }
+}
+
+async function handleAnnualEnrollments(req, res, path) {
+  if (req.method !== 'GET') return null;
+  const user = await requireUser(req, MANAGER_ROLES), db = await ensureSchema(), context = await academicContext(req);
+  await syncUpstreamStudents(req, db);
+  const match = path.match(/^\/api\/enrollments\/(\d+)$/);
+  const baseSql = `SELECT e.*,s.registration,s.name AS student_name,s.birth_date,s.guardian_name,s.guardian_phone,s.enrollment_notes AS notes,m.class_id
+    FROM crescer_student_annual_enrollments e JOIN crescer_students s ON s.id=e.student_id JOIN crescer_student_memberships m ON m.id=e.membership_id`;
+  if (match && Number(match[1]) >= 1000000000) {
+    const result = await db.query(`${baseSql} WHERE e.id=$1`, [Number(match[1])]);
+    if (!result.rowCount) return json(res, 404, { error: 'Matrícula anual não encontrada.' });
+    const row = result.rows[0], klass = context.classes.find(item => Number(item.id) === Number(row.class_id));
+    const enrollment = { ...row, id: Number(row.id), student_id: Number(row.student_id), membership_id: Number(row.membership_id), class_id: Number(row.class_id), code: `MAT-${row.school_year}-${row.student_id}`, grade_id: null, grade_name_snapshot: klass?.grade_level || klass?.name || 'Série vinculada', class_name_snapshot: klass?.name || 'Turma vinculada', enrollment_fee_cents: 0, books_total_cents: 0, uniforms_total_cents: 0, uniform_regular_total_cents: 0, uniform_physical_total_cents: 0, initial_total_cents: 0, monthly_fee_cents: 0, include_first_monthly: 0, created_by_name: 'Gestão Escolar' };
+    return json(res, 200, { enrollment, items: [], history: [] });
+  }
+  if (path !== '/api/enrollments') return null;
+  const old = await upstream(req, path, { method: 'GET' });
+  if (old.status >= 400 && old.status !== 404) return json(res, old.status, old.data);
+  const values = [], where = ["s.status <> 'inactive'"];
+  const year = Number(req.query.school_year), classId = Number(req.query.class_id), search = String(req.query.search || '').trim();
+  if (year) { values.push(year); where.push(`e.school_year=$${values.length}`); }
+  if (classId) { values.push(classId); where.push(`e.class_id=$${values.length}`); }
+  if (search) { values.push(`%${search}%`); where.push(`(s.name ILIKE $${values.length} OR s.registration ILIKE $${values.length} OR COALESCE(s.guardian_name,'') ILIKE $${values.length})`); }
+  const result = await db.query(`${baseSql} WHERE ${where.join(' AND ')} ORDER BY e.school_year DESC,s.name`, values);
+  const local = result.rows.map(row => { const klass = context.classes.find(item => Number(item.id) === Number(row.class_id)); return { ...row, id: Number(row.id), student_id: Number(row.student_id), class_id: Number(row.class_id), code: `MAT-${row.school_year}-${row.student_id}`, grade_name_snapshot: klass?.grade_level || klass?.name || 'Série vinculada', class_name_snapshot: klass?.name || 'Turma vinculada', enrollment_fee_cents: 0, books_total_cents: 0, uniforms_total_cents: 0, uniform_regular_total_cents: 0, uniform_physical_total_cents: 0, initial_total_cents: 0, monthly_fee_cents: 0, include_first_monthly: 0, created_by_name: user.name }; });
+  const upstreamRows = old.status === 200 ? old.data.enrollments || [] : [];
+  const localKeys = new Set(local.map(item => `${item.registration}:${item.school_year}`));
+  return json(res, 200, { enrollments: [...local, ...upstreamRows.filter(item => !localKeys.has(`${item.registration}:${item.school_year}`))] });
+}
+
 async function handleSummary(req, res, path) {
   if (path !== '/api/summary' || req.method !== 'GET') return null;
   const user = await requireUser(req, PEDAGOGICAL_ROLES), context = await academicContext(req);
@@ -622,6 +847,14 @@ export default async function handler(req, res) {
     }
     if (path === '/api/users' || /^\/api\/users\/\d+\/assignments$/.test(path) || /^\/api\/teacher-assignments\/\d+$/.test(path)) {
       const response = await handleTeacherAssignments(req, res, path);
+      if (response !== null) return response;
+    }
+    if (path === '/api/school-years' || path === '/api/students' || /^\/api\/students\/\d+(?:\/history)?$/.test(path)) {
+      const response = await handleStudents(req, res, path);
+      if (response !== null) return response;
+    }
+    if (path === '/api/enrollments' || /^\/api\/enrollments\/\d+$/.test(path)) {
+      const response = await handleAnnualEnrollments(req, res, path);
       if (response !== null) return response;
     }
     if (MANAGER_ONLY_ROUTES.some(pattern => pattern.test(path))) await requireUser(req, MANAGER_ROLES);
