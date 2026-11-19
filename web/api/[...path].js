@@ -3,6 +3,8 @@ import pg from 'pg';
 const { Pool } = pg;
 const OLD_API = 'https://crescer-gestao-escolar.davi-gonzaga1.chatgpt.site';
 const PUBLIC_ORIGIN = 'https://crescer-escola-web.vercel.app';
+const OFFICIAL_SCHOOL_YEARS = [2026, 2027, 2028, 2029];
+const OFFICIAL_GRADES = ['Infantil 3', 'Infantil 4', 'Infantil 5', '1º Ano', '2º Ano', '3º Ano', '4º Ano', '5º Ano', '6º Ano', '7º Ano'];
 const MANAGER_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar']);
 const PEDAGOGICAL_ROLES = new Set(['Administrador', 'Coordenação', 'Gestão Escolar', 'Professor']);
 const MANAGER_ONLY_ROUTES = [
@@ -67,6 +69,23 @@ export async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS crescer_agendas_date_class_idx ON crescer_agendas (agenda_date, class_id);
     ALTER TABLE crescer_agendas ADD COLUMN IF NOT EXISTS subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+    CREATE TABLE IF NOT EXISTS crescer_teacher_assignment_details (
+      upstream_assignment_id BIGINT PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      education_stage TEXT NOT NULL,
+      class_id BIGINT NOT NULL,
+      subject_id BIGINT,
+      school_year INTEGER NOT NULL,
+      grade_level TEXT NOT NULL,
+      class_name TEXT NOT NULL,
+      subject_name TEXT,
+      can_attendance BOOLEAN NOT NULL DEFAULT TRUE,
+      can_agenda BOOLEAN NOT NULL DEFAULT TRUE,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crescer_teacher_assignment_user_idx ON crescer_teacher_assignment_details (user_id, status, school_year);
   `).catch(error => { schemaPromise = null; throw error; });
   await schemaPromise;
   return db;
@@ -85,6 +104,14 @@ function text(value, limit = 12000) {
 
 function key(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function gradeKey(value) {
+  return key(value).replace(/infantil iii\b/g, 'infantil 3').replace(/infantil iv\b/g, 'infantil 4').replace(/infantil v\b/g, 'infantil 5').replace(/[ºª°]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function officialGrade(value) {
+  return OFFICIAL_GRADES.find(grade => gradeKey(grade) === gradeKey(value)) || null;
 }
 
 function requestPath(req) {
@@ -144,21 +171,102 @@ function normalizedUsers(data) {
   });
 }
 
+async function teacherAssignmentDetails(userId = null) {
+  const db = await ensureSchema();
+  const result = userId
+    ? await db.query('SELECT * FROM crescer_teacher_assignment_details WHERE user_id=$1 ORDER BY school_year, grade_level, subject_name', [Number(userId)])
+    : await db.query('SELECT * FROM crescer_teacher_assignment_details ORDER BY user_id, school_year, grade_level, subject_name');
+  return result.rows;
+}
+
+function mergeTeacherDetails(users, details) {
+  return users.map(user => ({ ...user, assignments: (user.assignments || []).map(assignment => {
+    const detail = details.find(item => Number(item.upstream_assignment_id) === Number(assignment.id));
+    return detail ? { ...assignment, ...detail, id: Number(assignment.id), user_id: Number(user.id), class_id: Number(detail.class_id), subject_id: detail.subject_id === null ? null : Number(detail.subject_id), school_year: Number(detail.school_year), can_attendance: detail.can_attendance ? 1 : 0, can_agenda: detail.can_agenda ? 1 : 0 } : assignment;
+  }) }));
+}
+
+async function persistTeacherDetail(req, assignmentId, userId, input, status = 'active') {
+  const context = await academicContext(req);
+  const klass = context.classes.find(item => Number(item.id) === Number(input.classId));
+  const subject = context.subjects.find(item => Number(item.id) === Number(input.subjectId));
+  if (!klass) throw Object.assign(new Error('A série confirmada não foi recuperada do banco de dados.'), { status: 409 });
+  const db = await ensureSchema(), now = Date.now();
+  await db.query(`INSERT INTO crescer_teacher_assignment_details (upstream_assignment_id,user_id,education_stage,class_id,subject_id,school_year,grade_level,class_name,subject_name,can_attendance,can_agenda,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+    ON CONFLICT (upstream_assignment_id) DO UPDATE SET user_id=EXCLUDED.user_id,education_stage=EXCLUDED.education_stage,class_id=EXCLUDED.class_id,subject_id=EXCLUDED.subject_id,school_year=EXCLUDED.school_year,grade_level=EXCLUDED.grade_level,class_name=EXCLUDED.class_name,subject_name=EXCLUDED.subject_name,can_attendance=EXCLUDED.can_attendance,can_agenda=EXCLUDED.can_agenda,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`,
+    [Number(assignmentId), Number(userId), String(input.educationStage || ''), Number(klass.id), Number(input.subjectId) || null, Number(klass.school_year), officialGrade(klass.grade_level || klass.name) || klass.grade_level || klass.name, officialGrade(klass.name) || klass.name, subject?.name || null, input.canAttendance !== false, input.canAgenda !== false, status, now]);
+}
+
+async function setTeacherDetailStatus(assignmentId, status) {
+  const db = await ensureSchema();
+  await db.query('UPDATE crescer_teacher_assignment_details SET status=$1,updated_at=$2 WHERE upstream_assignment_id=$3', [status, Date.now(), Number(assignmentId)]);
+}
+
+async function ensureUpstreamTeacherClass(req, input) {
+  if (Number(input.classId) > 0) return input;
+  const schoolYear = Number(input.schoolYear), gradeLevel = officialGrade(input.gradeLevel);
+  if (!OFFICIAL_SCHOOL_YEARS.includes(schoolYear) || !gradeLevel) throw Object.assign(new Error('Selecione um ano letivo e uma série oficiais.'), { status: 400 });
+  const classesResponse = await upstream(req, '/api/classes', { method: 'GET', copyQuery: false });
+  if (classesResponse.status !== 200) throw Object.assign(new Error(classesResponse.data.error || 'Não foi possível consultar as séries.'), { status: classesResponse.status });
+  const rows = classesResponse.data.classes || [];
+  let klass = rows.find(item => Number(item.school_year) === schoolYear && gradeKey(item.name) === gradeKey(gradeLevel));
+  if (!klass) {
+    const created = await upstream(req, '/api/classes', { method: 'POST', copyQuery: false, body: { name: gradeLevel, gradeLevel, shift: 'Matutino', schoolYear, teacherName: '' } });
+    if (created.status >= 300 && created.status !== 409) throw Object.assign(new Error(created.data.error || 'Não foi possível preparar a série.'), { status: created.status });
+    if (created.status < 300) klass = { id: created.data.id, name: gradeLevel, grade_level: gradeLevel, school_year: schoolYear };
+    else {
+      const refreshed = await upstream(req, '/api/classes', { method: 'GET', copyQuery: false });
+      klass = (refreshed.data.classes || []).find(item => Number(item.school_year) === schoolYear && gradeKey(item.name) === gradeKey(gradeLevel));
+    }
+  }
+  if (!klass?.id) throw Object.assign(new Error('A série não pôde ser vinculada ao banco de dados.'), { status: 409 });
+  return { ...input, classId: Number(klass.id), schoolYear, gradeLevel };
+}
+
 async function handleTeacherAssignments(req, res, path) {
   if (path === '/api/users' && req.method === 'GET') {
     await requireUser(req, MANAGER_ROLES);
     const result = await upstream(req, path, { method: 'GET', copyQuery: false });
-    return json(res, result.status, result.status === 200 ? { ...result.data, users: normalizedUsers(result.data) } : result.data);
+    if (result.status !== 200) return json(res, result.status, result.data);
+    const users = normalizedUsers(result.data), details = await teacherAssignmentDetails();
+    return json(res, 200, { ...result.data, users: mergeTeacherDetails(users, details) });
+  }
+  if (path === '/api/users' && req.method === 'POST') {
+    await requireUser(req, MANAGER_ROLES);
+    let input = await body(req);
+    if (String(input.role || '') === 'Professor') input = await ensureUpstreamTeacherClass(req, input);
+    const result = await upstream(req, path, { method: 'POST', copyQuery: false, body: input });
+    if (result.status < 300 && String(input.role || '') === 'Professor') {
+      const usersResponse = await upstream(req, '/api/users', { method: 'GET', copyQuery: false });
+      const created = normalizedUsers(usersResponse.data).find(user => Number(user.id) === Number(result.data.id));
+      const assignment = created?.assignments.find(item => Number(item.class_id) === Number(input.classId)) || created?.assignments[0];
+      if (assignment) await persistTeacherDetail(req, assignment.id, created.id, input, assignment.status || 'active');
+    }
+    return json(res, result.status, result.data);
+  }
+  const collectionMatch = path.match(/^\/api\/users\/(\d+)\/assignments$/);
+  if (collectionMatch && req.method === 'POST') {
+    await requireUser(req, MANAGER_ROLES);
+    const input = await ensureUpstreamTeacherClass(req, await body(req));
+    const result = await upstream(req, path, { method: 'POST', copyQuery: false, body: input });
+    if (result.status < 300 && result.data.id) await persistTeacherDetail(req, result.data.id, Number(collectionMatch[1]), input, 'active');
+    return json(res, result.status, result.data);
   }
   const match = path.match(/^\/api\/teacher-assignments\/(\d+)$/);
   if (!match || req.method !== 'PUT') return null;
   await requireUser(req, MANAGER_ROLES);
-  const input = await body(req);
-  if (input.classId === undefined && input.educationStage === undefined && input.subjectId === undefined) return proxy(req, res, path);
+  const rawInput = await body(req);
+  if (rawInput.classId === undefined && rawInput.educationStage === undefined && rawInput.subjectId === undefined) {
+    const result = await upstream(req, path, { method: 'PUT', copyQuery: false, body: rawInput });
+    if (result.status < 300) await setTeacherDetailStatus(Number(match[1]), rawInput.status === 'inactive' ? 'inactive' : 'active');
+    return json(res, result.status, result.data);
+  }
+  const input = await ensureUpstreamTeacherClass(req, rawInput);
   const usersResponse = await upstream(req, '/api/users', { method: 'GET', copyQuery: false });
   if (usersResponse.status !== 200) return json(res, usersResponse.status, usersResponse.data);
   const assignmentId = Number(match[1]);
-  const users = normalizedUsers(usersResponse.data);
+  const users = mergeTeacherDetails(normalizedUsers(usersResponse.data), await teacherAssignmentDetails());
   const teacher = users.find(user => user.assignments.some(item => Number(item.id) === assignmentId));
   const current = teacher?.assignments.find(item => Number(item.id) === assignmentId);
   if (!teacher || !current) return json(res, 404, { error: 'Atribuição não encontrada.' });
@@ -166,26 +274,50 @@ async function handleTeacherAssignments(req, res, path) {
   const sameScope = Number(current.class_id) === classId && (Number(current.subject_id) || null) === subjectId;
   if (sameScope) {
     const updated = await upstream(req, path, { method: 'PUT', copyQuery: false, body: { status: input.status === 'inactive' ? 'inactive' : 'active' } });
+    if (updated.status < 300) await persistTeacherDetail(req, assignmentId, teacher.id, input, input.status === 'inactive' ? 'inactive' : 'active');
     return json(res, updated.status, updated.status < 300 ? { ok: true, id: assignmentId } : updated.data);
   }
+  let replacementId;
   const equivalent = teacher.assignments.find(item => Number(item.id) !== assignmentId && Number(item.class_id) === classId && (Number(item.subject_id) || null) === subjectId);
   if (equivalent) {
     const activated = await upstream(req, `/api/teacher-assignments/${equivalent.id}`, { method: 'PUT', copyQuery: false, body: { status: 'active' } });
     if (activated.status >= 300) return json(res, activated.status, activated.data);
+    replacementId = Number(equivalent.id);
   } else {
     const created = await upstream(req, `/api/users/${teacher.id}/assignments`, { method: 'POST', copyQuery: false, body: input });
     if (created.status >= 300) return json(res, created.status, created.data);
+    replacementId = Number(created.data.id);
   }
+  await persistTeacherDetail(req, replacementId, teacher.id, input, 'active');
   const deactivated = await upstream(req, path, { method: 'PUT', copyQuery: false, body: { status: 'inactive' } });
   if (deactivated.status >= 300) return json(res, deactivated.status, deactivated.data);
+  await setTeacherDetailStatus(assignmentId, 'inactive');
   return json(res, 200, { ok: true, replaced: true });
+}
+
+async function handleTeacherSession(req, res, path) {
+  if (path !== '/api/session' || req.method !== 'GET') return null;
+  const result = await upstream(req, path, { method: 'GET', copyQuery: false });
+  if (result.status !== 200 || !result.data.user || result.data.user.role !== 'Professor') return json(res, result.status, result.data);
+  const details = await teacherAssignmentDetails(result.data.user.id);
+  const [user] = mergeTeacherDetails([result.data.user], details);
+  const selectedId = Number(req.headers['x-teacher-assignment-id'] || user.assignment?.id || user.assignments?.[0]?.id || 0);
+  user.assignment = user.assignments.find(item => Number(item.id) === selectedId && item.status === 'active') || user.assignments.find(item => item.status === 'active') || null;
+  return json(res, 200, { ...result.data, user });
 }
 
 async function requireUser(req, roles) {
   const session = await upstream(req, '/api/session', { method: 'GET', copyQuery: false });
   if (session.status !== 200 || !session.data.user) throw Object.assign(new Error('Sua sessão expirou. Entre novamente.'), { status: 401 });
-  if (roles && !roles.has(session.data.user.role)) throw Object.assign(new Error('Seu perfil não possui acesso a esta função.'), { status: 403 });
-  return session.data.user;
+  let user = session.data.user;
+  if (user.role === 'Professor') {
+    const details = await teacherAssignmentDetails(user.id);
+    [user] = mergeTeacherDetails([user], details);
+    const selectedId = Number(req.headers['x-teacher-assignment-id'] || user.assignment?.id || user.assignments?.[0]?.id || 0);
+    user.assignment = user.assignments.find(item => Number(item.id) === selectedId && item.status === 'active') || user.assignments.find(item => item.status === 'active') || null;
+  }
+  if (roles && !roles.has(user.role)) throw Object.assign(new Error('Seu perfil não possui acesso a esta função.'), { status: 403 });
+  return user;
 }
 
 async function academicContext(req) {
@@ -358,6 +490,10 @@ async function handleLibrary(req, res, path) {
 export default async function handler(req, res) {
   const path = requestPath(req);
   try {
+    if (path === '/api/session') {
+      const response = await handleTeacherSession(req, res, path);
+      if (response !== null) return response;
+    }
     if (path === '/api/library-books' || /^\/api\/library-books\/\d+$/.test(path)) {
       const response = await handleLibrary(req, res, path);
       if (response !== null) return response;
@@ -366,7 +502,7 @@ export default async function handler(req, res) {
       const response = await handleAgendas(req, res, path);
       if (response !== null) return response;
     }
-    if (path === '/api/users' || /^\/api\/teacher-assignments\/\d+$/.test(path)) {
+    if (path === '/api/users' || /^\/api\/users\/\d+\/assignments$/.test(path) || /^\/api\/teacher-assignments\/\d+$/.test(path)) {
       const response = await handleTeacherAssignments(req, res, path);
       if (response !== null) return response;
     }

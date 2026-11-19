@@ -170,16 +170,29 @@ function teacherScopeViolation(user, classId, subjectId = null, capability = "ag
   return null;
 }
 
-async function validatedTeacherAssignment(db, body) {
-  const classId = Number(body.classId); const stage = String(body.educationStage || ""); const subjectId = Number(body.subjectId) || null;
-  if (!Number.isInteger(classId) || !DEFAULT_SUBJECTS[stage]) return { error: "Selecione a etapa e a turma do professor." };
-  const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(classId).first(); if (!klass) return { error: "Turma não encontrada." };
-  const actualStage = educationStageFor(`${klass.grade_level} ${klass.name}`); if (actualStage !== stage) return { error: "A etapa selecionada não corresponde à turma." };
-  if (stage === "Ensino Fundamental") {
-    if (!subjectId) return { error: "Selecione a disciplina do professor." };
-    const subject = await db.prepare(`SELECT id FROM subjects WHERE id = ? AND education_stage = ? AND status = 'active'`).bind(subjectId, stage).first(); if (!subject) return { error: "Disciplina inválida para o Ensino Fundamental." };
+async function validatedTeacherAssignment(db, body, actorId = null) {
+  let classId = Number(body.classId); const stage = String(body.educationStage || ""); const subjectId = Number(body.subjectId) || null;
+  const schoolYear = Number(body.schoolYear); const requestedGrade = officialGrade(body.gradeLevel);
+  if (!DEFAULT_SUBJECTS[stage]) return { error: "Selecione a etapa de ensino do professor." };
+  if (!Number.isInteger(classId) || classId <= 0) {
+    if (!OFFICIAL_SCHOOL_YEARS.includes(schoolYear) || !requestedGrade) return { error: "Selecione um ano letivo e uma série oficiais." };
+    const rows = (await db.prepare(`SELECT * FROM classes WHERE school_year = ? ORDER BY id`).bind(schoolYear).all()).results;
+    let existing = rows.find(item => gradeKey(item.name) === gradeKey(requestedGrade));
+    if (!existing) {
+      const now = Date.now();
+      const created = await db.prepare(`INSERT INTO classes (name, grade_level, shift, school_year, teacher_name, status, created_by, created_at, updated_at) VALUES (?, ?, 'Matutino', ?, NULL, 'active', ?, ?, ?)`)
+        .bind(requestedGrade, requestedGrade, schoolYear, actorId, now, now).run();
+      existing = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(created.meta.last_row_id).first();
+    }
+    classId = Number(existing.id);
   }
-  return { classId, stage, subjectId: stage === "Ensino Fundamental" ? subjectId : null, schoolYear: Number(klass.school_year), canAttendance: body.canAttendance === false ? 0 : 1, canAgenda: body.canAgenda === false ? 0 : 1 };
+  const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(classId).first(); if (!klass) return { error: "Série não encontrada." };
+  const actualStage = educationStageFor(`${klass.grade_level} ${klass.name}`); if (actualStage !== stage) return { error: "A etapa selecionada não corresponde à turma." };
+  if (!OFFICIAL_SCHOOL_YEARS.includes(Number(klass.school_year))) return { error: "O ano letivo deve ser 2026, 2027, 2028 ou 2029." };
+  if (!officialGrade(klass.grade_level || klass.name)) return { error: "A série selecionada não pertence à estrutura oficial da escola." };
+  if (!subjectId) return { error: "Selecione a disciplina do professor." };
+  const subject = await db.prepare(`SELECT id FROM subjects WHERE id = ? AND education_stage = ? AND status = 'active'`).bind(subjectId, stage).first(); if (!subject) return { error: "A disciplina não pertence à etapa de ensino selecionada." };
+  return { classId, stage, subjectId, schoolYear: Number(klass.school_year), canAttendance: body.canAttendance === false ? 0 : 1, canAgenda: body.canAgenda === false ? 0 : 1 };
 }
 
 function temporaryPassword() {
@@ -309,7 +322,8 @@ async function recoveryRateLimited(db, identifierHash, ipHash) {
   return Number(result?.total || 0) >= RECOVERY_MAX_ATTEMPTS;
 }
 
-const DEFAULT_GRADES = ["Infantil 3", "Infantil 4", "Infantil 5", "1º Ano", "2º Ano", "3º Ano", "4º Ano", "5º Ano", "6º Ano", "7º Ano", "8º Ano", "9º Ano"];
+const OFFICIAL_SCHOOL_YEARS = [2026, 2027, 2028, 2029];
+const DEFAULT_GRADES = ["Infantil 3", "Infantil 4", "Infantil 5", "1º Ano", "2º Ano", "3º Ano", "4º Ano", "5º Ano", "6º Ano", "7º Ano"];
 const DEFAULT_SUBJECTS = {
   "Educação Infantil": ["Matemática", "Natureza e Sociedade", "Educação Física", "Ensino Religioso", "Linguagem", "Arte"],
   "Ensino Fundamental": ["Inglês", "Português", "Matemática", "Ciências", "Geografia", "Ensino Religioso", "História", "Arte"],
@@ -317,6 +331,7 @@ const DEFAULT_SUBJECTS = {
 const DEFAULT_COMPONENTS = { "Matemática": ["Oficina de Negócios"], "Ensino Religioso": ["Cidadania, Moral e Ética"], "Linguagem": ["Português", "Caligrafia"] };
 const educationStageFor = value => /infantil|educação infantil/i.test(String(value || "")) ? "Educação Infantil" : "Ensino Fundamental";
 const gradeKey = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/infantil\s+iii\b/g, "infantil 3").replace(/infantil\s+iv\b/g, "infantil 4").replace(/infantil\s+v\b/g, "infantil 5").replace(/[ºª°]/g, "").replace(/\s+/g, " ").trim();
+const officialGrade = value => DEFAULT_GRADES.find(grade => gradeKey(grade) === gradeKey(value)) || null;
 
 async function ensureAcademicData(db, userId) {
   const now = Date.now(); const operations = [];
@@ -1330,7 +1345,7 @@ async function handleApi(request, env, path) {
     if (emailEnabled && !validEmail(email)) return json({ error: "Informe um e-mail individual válido para o novo usuário." }, 400);
     if (email && !validEmail(email)) return json({ error: "Informe um endereço de e-mail válido." }, 400);
     if (email && await emailInUse(db, email)) return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
-    let assignment = null; if (role === "Professor") { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
+    let assignment = null; if (role === "Professor") { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body, auth.user.id); if (assignment.error) return json({ error: assignment.error }, 400); }
     const salt = randomHex(16); const passwordHash = await hashPassword(password, salt); const now = Date.now();
     try {
       const result = await db.prepare(`INSERT INTO users (username, username_key, name, role, initials, password_hash, password_salt, status, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
@@ -1363,7 +1378,7 @@ async function handleApi(request, env, path) {
   const assignmentCollectionMatch = path.match(/^\/api\/users\/(\d+)\/assignments$/);
   if (assignmentCollectionMatch && request.method === "POST") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
-    const userId = Number(assignmentCollectionMatch[1]); const body = await readJson(request); const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
+    const userId = Number(assignmentCollectionMatch[1]); const body = await readJson(request); await ensureAcademicData(db, auth.user.id); const assignment = await validatedTeacherAssignment(db, body, auth.user.id); if (assignment.error) return json({ error: assignment.error }, 400);
     const teacher = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'Professor'`).bind(userId).first(); if (!teacher) return json({ error: "Professor não encontrado." }, 404);
     const existing = assignment.subjectId
       ? await db.prepare(`SELECT id, status FROM teacher_assignments WHERE user_id = ? AND class_id = ? AND subject_id = ? AND school_year = ?`).bind(userId, assignment.classId, assignment.subjectId, assignment.schoolYear).first()
@@ -1383,7 +1398,7 @@ async function handleApi(request, env, path) {
     const auth = await requireManager(request, db); if (auth.error) return auth.error; const body = await readJson(request), id = Number(assignmentMatch[1]), current = await db.prepare(`SELECT * FROM teacher_assignments WHERE id = ?`).bind(id).first();
     if (!current) return json({ error: "Atribuição não encontrada." }, 404);
     if (body.classId !== undefined || body.educationStage !== undefined || body.subjectId !== undefined) {
-      const assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400);
+      await ensureAcademicData(db, auth.user.id); const assignment = await validatedTeacherAssignment(db, body, auth.user.id); if (assignment.error) return json({ error: assignment.error }, 400);
       try {
         await db.prepare(`UPDATE teacher_assignments SET education_stage = ?, class_id = ?, subject_id = ?, school_year = ?, can_attendance = ?, can_agenda = ?, status = ?, updated_at = ? WHERE id = ?`).bind(assignment.stage, assignment.classId, assignment.subjectId, assignment.schoolYear, assignment.canAttendance, assignment.canAgenda, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
       } catch (error) { if (String(error).includes("UNIQUE")) return json({ error: "Este professor já possui essa turma e disciplina neste ano letivo." }, 409); throw error; }
@@ -1400,7 +1415,7 @@ async function handleApi(request, env, path) {
     const body = await readJson(request); const name = String(body.name || "").trim(); const username = String(body.username || "").trim(); const role = internalRole(String(body.role || "")); const status = body.status === "inactive" ? "inactive" : "active";
     if (name.length < 3 || username.length < 3 || !ALLOWED_ROLES.has(role)) return json({ error: "Preencha nome, usuário e perfil corretamente." }, 400);
     const existingAssignmentCount = role === "Professor" ? await db.prepare(`SELECT COUNT(*) AS total FROM teacher_assignments WHERE user_id = ?`).bind(targetId).first() : { total: 0 };
-    let assignment = null; if (role === "Professor" && (!Number(existingAssignmentCount.total) || body.updatePrimaryAssignment === true)) { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body); if (assignment.error) return json({ error: assignment.error }, 400); }
+    let assignment = null; if (role === "Professor" && (!Number(existingAssignmentCount.total) || body.updatePrimaryAssignment === true)) { await ensureAcademicData(db, auth.user.id); assignment = await validatedTeacherAssignment(db, body, auth.user.id); if (assignment.error) return json({ error: assignment.error }, 400); }
     if (existing.role === "Administrador" && (role !== "Administrador" || status !== "active")) {
       const count = await db.prepare(`SELECT COUNT(*) AS total FROM users WHERE role = 'Administrador' AND status = 'active'`).first();
       if (count.total <= 1) return json({ error: "O sistema precisa manter pelo menos um administrador ativo." }, 400);
