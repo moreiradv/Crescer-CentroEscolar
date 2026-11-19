@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=20261118-agendas2" />
+  <link rel="stylesheet" href="./styles.css?v=20261119-students1" />
 </head>
 <body>
   <div class="login-screen" id="loginScreen">
@@ -156,8 +156,9 @@
 
       <div class="page" id="page-turmas">
         <section class="page-head"><div><p class="eyebrow">Estrutura acadêmica</p><h1>Turmas e alunos</h1><p>Crie turmas e vincule os alunos que aparecerão na frequência.</p></div><div class="head-actions"><button class="secondary-btn" id="newStudentBtn">＋ Novo aluno</button><button class="primary-btn" id="newClassBtn">＋ Nova turma</button></div></section>
+        <section class="school-year-folders" id="schoolYearFolders" aria-label="Pastas dos anos letivos"></section>
         <section class="class-grid" id="classCards"><article class="panel empty-state">Nenhuma turma cadastrada.</article></section>
-        <section class="panel data-panel"><div class="table-head"><div><h2>Alunos por ano letivo</h2><p><span id="studentCount">0</span> cadastros únicos no banco</p></div><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div><div class="table-wrap"><table><thead><tr><th>Ano</th><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th><th>Ações</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
+        <section class="panel data-panel"><div class="table-head"><div><h2>Alunos por ano letivo</h2><p><span id="studentCount">0</span> cadastros únicos no banco</p></div><div class="head-actions"><label class="inline-filter">Ano<select id="studentYearFilter"><option value="">Todos os anos</option></select></label><label class="inline-filter">Turma<select id="studentClassFilter"><option value="">Todas as turmas</option></select></label></div></div><div class="table-wrap"><table><thead><tr><th>Ano</th><th>Matrícula</th><th>Aluno</th><th>Turma</th><th>Nascimento</th><th>Responsável</th><th>Contato</th><th>Ações</th></tr></thead><tbody id="studentTable"></tbody></table></div></section>
       </div>
 
       <div class="page" id="page-progressao">
@@ -190,7 +191,7 @@
           <article class="metric-card"><div class="metric-icon orange">◷</div><div class="metric-top"><span>Rascunhos</span><b>Em andamento</b></div><strong id="metricDraftEnrollments">0</strong><small>Aguardando conclusão</small></article>
           <article class="metric-card featured"><div class="metric-icon violet">R$</div><div class="metric-top"><span>Valor inicial</span><b class="up">Preservado</b></div><strong id="metricEnrollmentRevenue">R$ 0,00</strong><small>Somatório das concluídas</small></article>
         </section>
-        <section class="panel filters-panel enrollment-filters"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="enrollmentSearch" placeholder="Aluno, matrícula ou responsável..." /></span></label><label>Série<select id="enrollmentGradeFilter"><option value="">Todas as séries</option></select></label><label>Turma<select id="enrollmentClassFilter"><option value="">Todas as turmas</option></select></label><label>De<input type="date" id="enrollmentFrom" /></label><label>Até<input type="date" id="enrollmentTo" /></label><button class="secondary-btn filter-clear" id="clearEnrollmentFilters">Limpar filtros</button></div></section>
+        <section class="panel filters-panel enrollment-filters"><div class="filters-row"><label>Pesquisar<span class="search-field"><b>⌕</b><input id="enrollmentSearch" placeholder="Aluno, matrícula ou responsável..." /></span></label><label>Ano letivo<select id="enrollmentYearFilter"><option value="">Todos os anos</option><option>2026</option><option>2027</option><option>2028</option><option>2029</option></select></label><label>Série<select id="enrollmentGradeFilter"><option value="">Todas as séries</option></select></label><label>Turma<select id="enrollmentClassFilter"><option value="">Todas as turmas</option></select></label><label>De<input type="date" id="enrollmentFrom" /></label><label>Até<input type="date" id="enrollmentTo" /></label><button class="secondary-btn filter-clear" id="clearEnrollmentFilters">Limpar filtros</button></div></section>
         <section class="panel data-panel"><div class="table-head"><div><h2>Matrículas realizadas</h2><p><span id="enrollmentCount">0</span> registros na consulta</p></div><span class="live-badge">● Sincronizado</span></div><div class="table-wrap"><table><thead><tr><th>Aluno</th><th>Série</th><th>Turma</th><th>Responsável</th><th>Data</th><th>Valor inicial</th><th>Mensalidade</th><th>Status</th><th>Ações</th></tr></thead><tbody id="enrollmentTable"><tr><td colspan="9" class="empty-cell">Nenhuma matrícula registrada.</td></tr></tbody></table></div></section>
       </div>
 
@@ -313,7 +314,7 @@
     <form method="dialog" id="classForm">
       <div class="modal-head"><div><span class="soft-label" id="classModalLabel">Nova turma</span><h2 id="classModalTitle">Criar turma</h2><p>A turma ficará disponível para agenda, alunos e frequência.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
       <input type="hidden" id="classId" />
-      <div class="form-grid"><label>Nome da turma<input id="className" placeholder="Ex.: 3º Ano A" required /></label><label>Etapa/Série<input id="classGrade" placeholder="Ex.: Ensino Fundamental" required /></label><label>Turno<select id="classShift" required><option>Matutino</option><option>Vespertino</option><option>Integral</option><option>Noturno</option></select></label><label>Ano letivo<input id="classYear" type="number" min="2020" max="2100" required /></label><label class="full">Professor regente<input id="classTeacher" placeholder="Nome do professor (opcional)" /></label></div>
+      <div class="form-grid"><label>Nome da turma<input id="className" placeholder="Ex.: 3º Ano" required /></label><label>Etapa/Série<input id="classGrade" placeholder="Ex.: Ensino Fundamental" required /></label><label>Turno<select id="classShift" required><option>Matutino</option><option>Vespertino</option><option>Integral</option><option>Noturno</option></select></label><label>Ano letivo<select id="classYear" required><option>2026</option><option>2027</option><option>2028</option><option>2029</option></select></label><label class="full">Professor regente<input id="classTeacher" placeholder="Nome do professor (opcional)" /></label></div>
       <p class="login-error hidden" id="classFormError" role="alert"></p>
       <div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteClassBtn">Excluir turma</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar turma</button></div>
     </form>
@@ -321,11 +322,20 @@
 
   <dialog class="modal" id="studentModal">
     <form method="dialog" id="studentForm">
-      <div class="modal-head"><div><span class="soft-label" id="studentModalLabel">Novo aluno</span><h2 id="studentModalTitle">Matricular aluno</h2><p>O aluno aparecerá automaticamente na lista de frequência da turma.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
-      <input type="hidden" id="studentId" />
-      <div class="form-grid"><label>Matrícula<input id="studentRegistration" placeholder="Ex.: 2026001" required /></label><label>Nome completo<input id="studentName" placeholder="Nome do aluno" required /></label><label>Data de nascimento<input id="studentBirthDate" type="date" /></label><label>Turma<select id="studentClass" required><option value="">Selecione uma turma</option></select></label><label>Responsável<input id="studentGuardian" placeholder="Nome do responsável" /></label><label>Telefone do responsável<input id="studentPhone" type="tel" placeholder="(00) 00000-0000" /></label></div>
+      <div class="modal-head"><div><span class="soft-label" id="studentModalLabel">Novo aluno</span><h2 id="studentModalTitle">Matricular aluno</h2><p>Cadastro pessoal único com matrícula e histórico separados por ano letivo.</p></div><button class="modal-close" value="cancel" aria-label="Fechar">×</button></div>
+      <input type="hidden" id="studentId" /><input type="hidden" id="studentMembershipId" />
+      <div class="form-grid">
+        <label class="full" id="existingStudentWrap">Aluno já cadastrado (opcional)<select id="studentExisting"><option value="">Cadastrar uma pessoa nova</option></select><small>Use esta opção para criar somente o vínculo de um novo ano, sem duplicar o aluno.</small></label>
+        <label>Ano letivo<select id="studentYear" required></select></label><label>Turma / série<select id="studentClass" required><option value="">Selecione uma turma</option></select></label>
+        <label>Matrícula<input id="studentRegistration" placeholder="Ex.: 2026001" required /></label><label>Nome completo<input id="studentName" placeholder="Nome do aluno" required /></label>
+        <label>Data de nascimento<input id="studentBirthDate" type="date" /></label><label>Etapa de ensino<input id="studentStage" readonly placeholder="Automática pela turma" /></label>
+        <label>Nome da mãe<input id="studentMother" placeholder="Nome completo" /></label><label>Nome do pai<input id="studentFather" placeholder="Nome completo" /></label>
+        <label>Responsável principal<input id="studentGuardian" placeholder="Nome do responsável" /></label><label>Telefone de contato<input id="studentPhone" type="tel" placeholder="(00) 00000-0000" /></label>
+        <label>E-mail do responsável<input id="studentEmail" type="email" placeholder="responsavel@email.com" /></label><label class="full">Endereço<input id="studentAddress" placeholder="Rua, número, bairro e cidade" /></label>
+        <label class="full">Informações da matrícula<textarea id="studentEnrollmentNotes" placeholder="Observações e informações complementares"></textarea></label>
+      </div>
       <p class="login-error hidden" id="studentFormError" role="alert"></p>
-      <div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteStudentBtn">Excluir aluno</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default">Salvar aluno</button></div>
+      <div class="modal-actions"><button class="danger-btn hidden" type="button" id="deleteStudentBtn">Excluir aluno</button><span class="action-spacer"></span><button class="secondary-btn" value="cancel">Cancelar</button><button class="primary-btn" type="submit" value="default" id="saveStudentBtn">Salvar aluno</button></div>
     </form>
   </dialog>
 
@@ -371,7 +381,7 @@
       <div class="enrollment-layout">
         <div class="enrollment-fields">
           <section class="form-section"><div class="section-title"><span>1</span><div><h3>Aluno e responsável</h3><p>Campos com * são obrigatórios.</p></div></div><div class="form-grid"><label>Matrícula *<input id="enrollmentRegistration" required placeholder="Ex.: 2026001" /></label><label>Nome completo do aluno *<input id="enrollmentStudentName" required /></label><label>Data de nascimento *<input id="enrollmentBirthDate" type="date" required /></label><label>Data da matrícula *<input id="enrollmentDate" type="date" required /></label><label>Responsável *<input id="enrollmentGuardian" required /></label><label>Telefone *<input id="enrollmentPhone" type="tel" required placeholder="(00) 00000-0000" /></label><label class="full">Observações<textarea id="enrollmentNotes" placeholder="Informações adicionais"></textarea></label></div></section>
-          <section class="form-section"><div class="section-title"><span>2</span><div><h3>Série e turma</h3><p>Os valores da série serão aplicados automaticamente.</p></div></div><div class="form-grid"><label>Série de ingresso *<select id="enrollmentGrade" required><option value="">Selecione a série</option></select></label><label>Turma, quando definida<select id="enrollmentClass"><option value="">Definir posteriormente</option></select></label></div></section>
+          <section class="form-section"><div class="section-title"><span>2</span><div><h3>Ano, série e turma</h3><p>Cada matrícula pertence a um único ano letivo e preserva os anos anteriores.</p></div></div><div class="form-grid"><label>Ano letivo *<select id="enrollmentYear" required><option>2026</option><option>2027</option><option>2028</option><option>2029</option></select></label><label>Série de ingresso *<select id="enrollmentGrade" required><option value="">Selecione a série</option></select></label><label>Turma, quando definida<select id="enrollmentClass"><option value="">Definir posteriormente</option></select></label></div></section>
           <section class="form-section"><div class="section-title"><span>3</span><div><h3>Livros</h3><p>Disponíveis conforme a série selecionada.</p></div></div><div id="enrollmentBooks" class="product-picker"><p class="empty-state">Selecione uma série para ver os livros.</p></div></section>
           <section class="form-section"><div class="section-title"><span>4</span><div><h3>Fardamento</h3><p>Escolha conjuntos ou peças avulsas; cada item é cobrado somente uma vez.</p></div></div><div class="uniform-category"><h4>Fardamento regular</h4><div id="enrollmentUniformRegular" class="product-picker"><p class="empty-state">Nenhum produto regular cadastrado.</p></div></div><div class="uniform-category"><h4>Educação Física</h4><div id="enrollmentUniformPhysical" class="product-picker"><p class="empty-state">Nenhum produto de Educação Física cadastrado.</p></div></div></section>
         </div>
@@ -401,8 +411,8 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><strong>Registro salvo</strong><p>As informações foram atualizadas.</p></div></div>
-  <script src="./app.js?v=20261118-agendas3"></script>
-  <script src="./enrollments.js?v=20261029-main-prompt"></script>
+  <script src="./app.js?v=20261119-students1"></script>
+  <script src="./enrollments.js?v=20261119-students1"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

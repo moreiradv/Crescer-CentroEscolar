@@ -335,6 +335,8 @@ const officialGrade = value => DEFAULT_GRADES.find(grade => gradeKey(grade) === 
 
 async function ensureAcademicData(db, userId) {
   const now = Date.now(); const operations = [];
+  OFFICIAL_SCHOOL_YEARS.forEach(year => operations.push(db.prepare(`INSERT OR IGNORE INTO school_years (year, label, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)`)
+    .bind(year, `Ano letivo ${year}`, now, now)));
   for (const [stage, names] of Object.entries(DEFAULT_SUBJECTS)) names.forEach((name, index) => operations.push(db.prepare(`INSERT OR IGNORE INTO subjects (name, education_stage, sort_order, status, created_by, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?)`)
     .bind(name, stage, index + 1, userId, now, now)));
   await db.batch(operations);
@@ -345,6 +347,39 @@ async function ensureAcademicData(db, userId) {
   if (componentOps.length) await db.batch(componentOps);
   await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at)
     SELECT s.id, c.id, c.school_year, c.grade_level, c.name, 'active', s.created_at, s.created_by, s.created_at, s.updated_at FROM students s JOIN classes c ON c.id = s.class_id`).run();
+}
+
+const studentSnapshot = (student, membership = null) => ({
+  id: Number(student.id), registration: student.registration, name: student.name, birth_date: student.birth_date || null,
+  mother_name: student.mother_name || null, father_name: student.father_name || null, guardian_name: student.guardian_name || null,
+  guardian_phone: student.guardian_phone || null, guardian_email: student.guardian_email || null, address: student.address || null,
+  enrollment_notes: student.enrollment_notes || null, status: student.status, class_id: Number(student.class_id) || null,
+  membership: membership ? { id: Number(membership.id), class_id: Number(membership.class_id), school_year: Number(membership.school_year), grade_level_snapshot: membership.grade_level_snapshot, class_name_snapshot: membership.class_name_snapshot, result_status: membership.result_status } : null,
+});
+
+async function recordStudentChange(db, studentId, membershipId, action, actorId, beforeData, afterData) {
+  await db.prepare(`INSERT INTO student_change_history (student_id, membership_id, action, actor_user_id, before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(studentId, membershipId || null, action, actorId, beforeData ? JSON.stringify(beforeData) : null, afterData ? JSON.stringify(afterData) : null, Date.now()).run();
+}
+
+async function gradeForClass(db, klass, userId) {
+  await ensureDefaultGrades(db, userId);
+  const grades = (await db.prepare(`SELECT * FROM grades WHERE status = 'active' ORDER BY id`).all()).results;
+  const keys = [klass.grade_level, klass.name].filter(Boolean).map(gradeKey);
+  return grades.find(item => keys.includes(gradeKey(item.name))) || grades.find(item => keys.some(value => value.startsWith(gradeKey(item.name))));
+}
+
+async function ensureStudentEnrollment(db, user, student, klass, notes = "") {
+  const existing = await db.prepare(`SELECT id FROM enrollments WHERE student_id = ? AND school_year = ? AND status != 'cancelled' LIMIT 1`).bind(student.id, klass.school_year).first();
+  if (existing) return { id: Number(existing.id), created: false };
+  const grade = await gradeForClass(db, klass, user.id);
+  if (!grade) throw new Error(`Cadastre a série “${klass.grade_level}” nas configurações de Matrículas.`);
+  const now = Date.now(), enrollmentDate = `${klass.school_year}-01-01`, code = `MAT-${klass.school_year}-${randomHex(4).toUpperCase()}`;
+  const result = await db.prepare(`INSERT INTO enrollments (code, registration, student_id, student_name, birth_date, grade_id, grade_name_snapshot, class_id, class_name_snapshot, school_year, guardian_name, guardian_phone, enrollment_date, notes, status, enrollment_fee_cents, monthly_fee_cents, books_total_cents, uniforms_total_cents, uniform_regular_total_cents, uniform_physical_total_cents, include_first_monthly, initial_total_cents, created_by, updated_by, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, ?, ?, NULL)`)
+    .bind(code, student.registration, student.id, student.name, student.birth_date || "", grade.id, grade.name, klass.id, klass.name, klass.school_year, student.guardian_name || "", student.guardian_phone || "", enrollmentDate, String(notes || student.enrollment_notes || `Matrícula preparada para ${klass.name} — ${klass.school_year}.`).trim(), grade.enrollment_fee_cents, grade.monthly_fee_cents, grade.enrollment_fee_cents, user.id, user.id, now, now).run();
+  const enrollmentId = Number(result.meta.last_row_id);
+  await db.prepare(`INSERT INTO enrollment_history (enrollment_id, user_id, action, details, created_at) VALUES (?, ?, 'created_draft', ?, ?)`).bind(enrollmentId, user.id, `${student.registration} • ${student.name} • ${klass.school_year}`, now).run();
+  return { id: enrollmentId, created: true };
 }
 
 async function academicCatalog(db, userId) {
@@ -630,9 +665,10 @@ async function handleEnrollmentApi(request, db, path) {
   }
 
   if (path === "/api/enrollments" && request.method === "GET") {
-    const params = new URL(request.url).searchParams; const search = String(params.get("search") || "").trim(); const gradeId = Number(params.get("grade_id") || 0); const classId = Number(params.get("class_id") || 0); const from = String(params.get("from") || ""); const to = String(params.get("to") || "");
+    const params = new URL(request.url).searchParams; const search = String(params.get("search") || "").trim(); const schoolYear = Number(params.get("school_year") || 0); const gradeId = Number(params.get("grade_id") || 0); const classId = Number(params.get("class_id") || 0); const from = String(params.get("from") || ""); const to = String(params.get("to") || "");
     const where = []; const values = [];
     if (search) { where.push(`(e.student_name LIKE ? OR e.registration LIKE ? OR e.guardian_name LIKE ?)`); values.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+    if (schoolYear) { where.push(`e.school_year = ?`); values.push(schoolYear); }
     if (gradeId) { where.push(`e.grade_id = ?`); values.push(gradeId); }
     if (classId) { where.push(`e.class_id = ?`); values.push(classId); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { where.push(`e.enrollment_date >= ?`); values.push(from); }
@@ -668,7 +704,8 @@ async function handleEnrollmentApi(request, db, path) {
     if (registration.length < 2 || studentName.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || guardianName.length < 3 || guardianPhone.length < 8 || !/^\d{4}-\d{2}-\d{2}$/.test(enrollmentDate) || !Number.isInteger(gradeId)) return json({ error: "Preencha matrícula, aluno, nascimento, série, responsável, telefone e data." }, 400);
     const grade = await db.prepare(`SELECT * FROM grades WHERE id = ?`).bind(gradeId).first(); if (!grade || grade.status !== "active") return json({ error: "Selecione uma série ativa." }, 400);
     const klass = classId ? await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first() : null; if (classId && !klass) return json({ error: "Selecione uma turma ativa." }, 400);
-    const schoolYear = Number(klass?.school_year || enrollmentDate.slice(0, 4));
+    const schoolYear = Number(klass?.school_year || body.schoolYear || enrollmentDate.slice(0, 4));
+    if (!OFFICIAL_SCHOOL_YEARS.includes(schoolYear)) return json({ error: "Selecione o ano letivo 2026, 2027, 2028 ou 2029." }, 400);
     const duplicate = await db.prepare(`SELECT id FROM enrollments WHERE registration = ? AND school_year = ? AND id != ? AND status != 'cancelled' LIMIT 1`).bind(registration, schoolYear, id || 0).first(); if (duplicate) return json({ error: "Este aluno já possui matrícula neste ano letivo." }, 409);
     const studentExists = completing || existing?.status === "completed" ? await db.prepare(`SELECT * FROM students WHERE registration = ? OR (lower(trim(name)) = lower(trim(?)) AND birth_date = ?) ORDER BY CASE WHEN registration = ? THEN 0 ELSE 1 END LIMIT 1`).bind(registration, studentName, birthDate, registration).first() : null;
     if (studentExists && existing?.student_id && Number(studentExists.id) !== Number(existing.student_id)) return json({ error: "Os dados informados pertencem a outro cadastro de aluno." }, 409);
@@ -1014,6 +1051,20 @@ async function handleApi(request, env, path) {
     return result.error ? json({ error: result.error }, result.status) : json(result);
   }
 
+  if (path === "/api/school-years" && request.method === "GET") {
+    const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
+    await ensureAcademicData(db, auth.user.id);
+    const result = await db.prepare(`SELECT y.year, y.label, y.status,
+      (SELECT COUNT(*) FROM classes c WHERE c.school_year = y.year) AS class_count,
+      (SELECT COUNT(DISTINCT h.student_id) FROM student_class_history h WHERE h.school_year = y.year) AS student_count,
+      (SELECT COUNT(*) FROM enrollments e WHERE e.school_year = y.year AND e.status != 'cancelled') AS enrollment_count,
+      (SELECT COUNT(*) FROM teacher_assignments t WHERE t.school_year = y.year AND t.status = 'active') AS teacher_assignment_count,
+      (SELECT COUNT(*) FROM agenda_entries a WHERE a.school_year = y.year) AS agenda_count,
+      (SELECT COUNT(*) FROM attendance_records f WHERE f.school_year = y.year) AS attendance_count
+      FROM school_years y ORDER BY y.year`).all();
+    return json({ years: result.results });
+  }
+
   if (path === "/api/classes" && request.method === "GET") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
@@ -1026,7 +1077,7 @@ async function handleApi(request, env, path) {
   if (path === "/api/classes" && request.method === "POST") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const body = await readJson(request); const name = String(body.name || "").trim(); const gradeLevel = String(body.gradeLevel || "").trim(); const shift = String(body.shift || ""); const schoolYear = Number(body.schoolYear); const teacherName = String(body.teacherName || "").trim(); const now = Date.now();
-    if (name.length < 2 || gradeLevel.length < 2 || !ALLOWED_SHIFTS.has(shift) || !Number.isInteger(schoolYear) || schoolYear < 2020 || schoolYear > 2100) return json({ error: "Preencha nome, etapa, turno e ano letivo corretamente." }, 400);
+    if (name.length < 2 || gradeLevel.length < 2 || !ALLOWED_SHIFTS.has(shift) || !OFFICIAL_SCHOOL_YEARS.includes(schoolYear)) return json({ error: "Preencha nome, etapa, turno e selecione 2026, 2027, 2028 ou 2029." }, 400);
     try {
       const result = await db.prepare(`INSERT INTO classes (name, grade_level, shift, school_year, teacher_name, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`)
         .bind(name, gradeLevel, shift, schoolYear, teacherName || null, auth.user.id, now, now).run();
@@ -1042,7 +1093,7 @@ async function handleApi(request, env, path) {
   if (classMatch && request.method === "PUT") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const id = Number(classMatch[1]); const body = await readJson(request); const name = String(body.name || "").trim(); const gradeLevel = String(body.gradeLevel || "").trim(); const shift = String(body.shift || ""); const schoolYear = Number(body.schoolYear); const teacherName = String(body.teacherName || "").trim();
-    if (name.length < 2 || gradeLevel.length < 2 || !ALLOWED_SHIFTS.has(shift) || !Number.isInteger(schoolYear)) return json({ error: "Preencha os dados da turma corretamente." }, 400);
+    if (name.length < 2 || gradeLevel.length < 2 || !ALLOWED_SHIFTS.has(shift) || !OFFICIAL_SCHOOL_YEARS.includes(schoolYear)) return json({ error: "Preencha os dados da turma e selecione 2026, 2027, 2028 ou 2029." }, 400);
     try {
       const result = await db.prepare(`UPDATE classes SET name = ?, grade_level = ?, shift = ?, school_year = ?, teacher_name = ?, status = ?, updated_at = ? WHERE id = ?`)
         .bind(name, gradeLevel, shift, schoolYear, teacherName || null, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
@@ -1064,28 +1115,48 @@ async function handleApi(request, env, path) {
   if (path === "/api/students" && request.method === "GET") {
     const auth = await requirePedagogical(request, db); if (auth.error) return auth.error;
     await ensureAcademicData(db, auth.user.id);
-    const requestedClassId = Number(new URL(request.url).searchParams.get("class_id") || 0); const classId = auth.user.role === "Professor" ? Number(auth.user.assignment?.class_id || 0) : requestedClassId;
+    const params = new URL(request.url).searchParams; const requestedClassId = Number(params.get("class_id") || 0); const requestedYear = Number(params.get("school_year") || 0); const classId = auth.user.role === "Professor" ? Number(auth.user.assignment?.class_id || 0) : requestedClassId;
     if (auth.user.role === "Professor" && !classId) return json({ students: [] });
     const statement = auth.user.role === "Professor"
-      ? db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift, c.school_year, c.id AS membership_class_id, 1 AS is_current FROM students s JOIN classes c ON c.id = s.class_id WHERE s.class_id = ? ORDER BY s.name`).bind(classId)
+      ? db.prepare(`SELECT s.*, c.name AS class_name, c.shift AS class_shift, c.school_year, c.id AS membership_class_id, h.id AS membership_id, 1 AS is_current FROM students s JOIN classes c ON c.id = s.class_id LEFT JOIN student_class_history h ON h.student_id = s.id AND h.class_id = c.id WHERE s.class_id = ? ORDER BY s.name`).bind(classId)
       : classId
-        ? db.prepare(`SELECT s.*, h.class_id AS membership_class_id, h.result_status, h.left_at, c.name AS class_name, c.shift AS class_shift, h.school_year, CASE WHEN s.class_id = h.class_id THEN 1 ELSE 0 END AS is_current FROM student_class_history h JOIN students s ON s.id = h.student_id LEFT JOIN classes c ON c.id = h.class_id WHERE h.class_id = ? ORDER BY h.school_year DESC, s.name`).bind(classId)
-        : db.prepare(`SELECT s.*, h.class_id AS membership_class_id, h.result_status, h.left_at, c.name AS class_name, c.shift AS class_shift, h.school_year, CASE WHEN s.class_id = h.class_id THEN 1 ELSE 0 END AS is_current FROM student_class_history h JOIN students s ON s.id = h.student_id LEFT JOIN classes c ON c.id = h.class_id ORDER BY h.school_year DESC, c.name, s.name`);
+        ? db.prepare(`SELECT s.*, s.class_id AS current_class_id, h.id AS membership_id, h.class_id AS membership_class_id, h.result_status, h.left_at, c.name AS class_name, c.shift AS class_shift, h.school_year, CASE WHEN s.class_id = h.class_id THEN 1 ELSE 0 END AS is_current FROM student_class_history h JOIN students s ON s.id = h.student_id LEFT JOIN classes c ON c.id = h.class_id WHERE h.class_id = ? ${requestedYear ? "AND h.school_year = ?" : ""} ORDER BY h.school_year DESC, s.name`).bind(...(requestedYear ? [classId, requestedYear] : [classId]))
+        : requestedYear
+          ? db.prepare(`SELECT s.*, s.class_id AS current_class_id, h.id AS membership_id, h.class_id AS membership_class_id, h.result_status, h.left_at, c.name AS class_name, c.shift AS class_shift, h.school_year, CASE WHEN s.class_id = h.class_id THEN 1 ELSE 0 END AS is_current FROM student_class_history h JOIN students s ON s.id = h.student_id LEFT JOIN classes c ON c.id = h.class_id WHERE h.school_year = ? ORDER BY c.name, s.name`).bind(requestedYear)
+          : db.prepare(`SELECT s.*, s.class_id AS current_class_id, h.id AS membership_id, h.class_id AS membership_class_id, h.result_status, h.left_at, c.name AS class_name, c.shift AS class_shift, h.school_year, CASE WHEN s.class_id = h.class_id THEN 1 ELSE 0 END AS is_current FROM student_class_history h JOIN students s ON s.id = h.student_id LEFT JOIN classes c ON c.id = h.class_id ORDER BY h.school_year DESC, c.name, s.name`);
     const result = await statement.all(); return json({ students: result.results });
   }
 
   if (path === "/api/students" && request.method === "POST") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
-    const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const birthDate = String(body.birthDate || "").trim(); const guardianName = String(body.guardianName || "").trim(); const guardianPhone = String(body.guardianPhone || "").trim(); const classId = Number(body.classId); const now = Date.now();
-    if (registration.length < 2 || name.length < 3 || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
+    const body = await readJson(request); const existingStudentId = Number(body.existingStudentId || 0); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const birthDate = String(body.birthDate || "").trim(); const guardianName = String(body.guardianName || "").trim(); const guardianPhone = String(body.guardianPhone || "").trim(); const classId = Number(body.classId); const now = Date.now();
+    if ((!existingStudentId && (registration.length < 2 || name.length < 3)) || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
     const klass = await db.prepare(`SELECT * FROM classes WHERE id = ? AND status = 'active'`).bind(classId).first(); if (!klass) return json({ error: "Selecione uma turma ativa." }, 400);
+    if (!OFFICIAL_SCHOOL_YEARS.includes(Number(klass.school_year))) return json({ error: "O ano letivo deve ser 2026, 2027, 2028 ou 2029." }, 400);
+    if (existingStudentId) {
+      const existing = await db.prepare(`SELECT s.*, c.school_year AS current_year FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?`).bind(existingStudentId).first();
+      if (!existing) return json({ error: "Aluno existente não encontrado." }, 404);
+      const sameYear = await db.prepare(`SELECT id FROM student_class_history WHERE student_id = ? AND school_year = ? LIMIT 1`).bind(existingStudentId, klass.school_year).first();
+      if (sameYear) return json({ error: "Este aluno já possui vínculo neste ano letivo. Edite o vínculo existente." }, 409);
+      const linked = await db.prepare(`INSERT INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
+        .bind(existingStudentId, classId, klass.school_year, klass.grade_level, klass.name, now, auth.user.id, now, now).run();
+      if (Number(klass.school_year) >= Number(existing.current_year || 0)) await db.prepare(`UPDATE students SET class_id = ?, status = 'active', updated_by = ?, updated_at = ? WHERE id = ?`).bind(classId, auth.user.id, now, existingStudentId).run();
+      await ensureStudentEnrollment(db, auth.user, existing, klass, body.enrollmentNotes);
+      const membership = await db.prepare(`SELECT * FROM student_class_history WHERE id = ?`).bind(linked.meta.last_row_id).first();
+      await recordStudentChange(db, existingStudentId, membership.id, "year_linked", auth.user.id, null, studentSnapshot({ ...existing, class_id: Number(klass.school_year) >= Number(existing.current_year || 0) ? classId : existing.class_id }, membership));
+      await audit(db, auth.user.id, "student_year_linked", existingStudentId, `${existing.registration} • ${existing.name} • ${klass.school_year}`);
+      return json({ ok: true, id: existingStudentId, membershipId: membership.id, linkedExisting: true }, 201);
+    }
     const sameStudent = birthDate ? await db.prepare(`SELECT id, registration FROM students WHERE lower(trim(name)) = lower(trim(?)) AND birth_date = ? LIMIT 1`).bind(name, birthDate).first() : null;
     if (sameStudent) return json({ error: `Este aluno já está cadastrado com a matrícula ${sameStudent.registration}. Edite o cadastro existente ou faça a nova matrícula por ele.` }, 409);
     try {
-      const result = await db.prepare(`INSERT INTO students (registration, name, birth_date, guardian_name, guardian_phone, class_id, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`)
-        .bind(registration, name, birthDate || null, guardianName || null, guardianPhone || null, classId, auth.user.id, now, now).run();
-      await db.prepare(`INSERT INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
+      const result = await db.prepare(`INSERT INTO students (registration, name, birth_date, mother_name, father_name, guardian_name, guardian_phone, guardian_email, address, enrollment_notes, class_id, status, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
+        .bind(registration, name, birthDate || null, String(body.motherName || "").trim() || null, String(body.fatherName || "").trim() || null, guardianName || null, guardianPhone || null, String(body.guardianEmail || "").trim() || null, String(body.address || "").trim() || null, String(body.enrollmentNotes || "").trim() || null, classId, auth.user.id, auth.user.id, now, now).run();
+      const membershipResult = await db.prepare(`INSERT INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
         .bind(result.meta.last_row_id, classId, klass.school_year, klass.grade_level, klass.name, now, auth.user.id, now, now).run();
+      const saved = await db.prepare(`SELECT * FROM students WHERE id = ?`).bind(result.meta.last_row_id).first(); const membership = await db.prepare(`SELECT * FROM student_class_history WHERE id = ?`).bind(membershipResult.meta.last_row_id).first();
+      await ensureStudentEnrollment(db, auth.user, saved, klass, body.enrollmentNotes);
+      await recordStudentChange(db, saved.id, membership.id, "created", auth.user.id, null, studentSnapshot(saved, membership));
       await audit(db, auth.user.id, "student_created", result.meta.last_row_id, `${registration} • ${name}`); return json({ ok: true, id: result.meta.last_row_id }, 201);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Essa matrícula já está cadastrada." }, 409);
@@ -1096,7 +1167,7 @@ async function handleApi(request, env, path) {
   const studentMatch = path.match(/^\/api\/students\/(\d+)$/);
   if (studentMatch && request.method === "PUT") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
-    const id = Number(studentMatch[1]); const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const classId = Number(body.classId);
+    const id = Number(studentMatch[1]); const body = await readJson(request); const registration = String(body.registration || "").trim(); const name = String(body.name || "").trim(); const classId = Number(body.classId); const requestedMembershipId = Number(body.membershipId || 0);
     if (registration.length < 2 || name.length < 3 || !Number.isInteger(classId) || classId < 1) return json({ error: "Informe matrícula, nome e turma do aluno." }, 400);
     const [existing, targetClass] = await Promise.all([
       db.prepare(`SELECT * FROM students WHERE id = ?`).bind(id).first(),
@@ -1104,19 +1175,30 @@ async function handleApi(request, env, path) {
     ]);
     if (!existing) return json({ error: "Aluno não encontrado." }, 404);
     if (!targetClass) return json({ error: "Selecione uma turma ativa." }, 400);
+    if (!OFFICIAL_SCHOOL_YEARS.includes(Number(targetClass.school_year))) return json({ error: "O ano letivo deve ser 2026, 2027, 2028 ou 2029." }, 400);
+    const membership = requestedMembershipId
+      ? await db.prepare(`SELECT * FROM student_class_history WHERE id = ? AND student_id = ?`).bind(requestedMembershipId, id).first()
+      : await db.prepare(`SELECT * FROM student_class_history WHERE student_id = ? AND class_id = ? ORDER BY school_year DESC LIMIT 1`).bind(id, existing.class_id).first();
+    if (!membership) return json({ error: "O vínculo anual selecionado não foi encontrado." }, 404);
+    const duplicateYear = await db.prepare(`SELECT id FROM student_class_history WHERE student_id = ? AND school_year = ? AND id != ? LIMIT 1`).bind(id, targetClass.school_year, membership.id).first();
+    if (duplicateYear) return json({ error: "Este aluno já possui outro vínculo no ano letivo selecionado." }, 409);
     const duplicateIdentity = String(body.birthDate || "").trim() ? await db.prepare(`SELECT id FROM students WHERE id != ? AND lower(trim(name)) = lower(trim(?)) AND birth_date = ? LIMIT 1`).bind(id, name, String(body.birthDate || "").trim()).first() : null;
     if (duplicateIdentity) return json({ error: "Já existe outro cadastro com este nome e data de nascimento." }, 409);
     try {
-      const result = await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, class_id = ?, status = ?, updated_at = ? WHERE id = ?`)
-        .bind(registration, name, String(body.birthDate || "").trim() || null, String(body.guardianName || "").trim() || null, String(body.guardianPhone || "").trim() || null, classId, body.status === "inactive" ? "inactive" : "active", Date.now(), id).run();
+      const before = studentSnapshot(existing, membership), now = Date.now();
+      const latestOther = await db.prepare(`SELECT h.class_id, h.school_year FROM student_class_history h WHERE h.student_id = ? AND h.id != ? ORDER BY h.school_year DESC, h.id DESC LIMIT 1`).bind(id, membership.id).first();
+      const currentClassId = Number(targetClass.school_year) >= Number(latestOther?.school_year || 0) ? classId : Number(latestOther.class_id);
+      const result = await db.prepare(`UPDATE students SET registration = ?, name = ?, birth_date = ?, mother_name = ?, father_name = ?, guardian_name = ?, guardian_phone = ?, guardian_email = ?, address = ?, enrollment_notes = ?, class_id = ?, status = ?, updated_by = ?, updated_at = ? WHERE id = ?`)
+        .bind(registration, name, String(body.birthDate || "").trim() || null, String(body.motherName || "").trim() || null, String(body.fatherName || "").trim() || null, String(body.guardianName || "").trim() || null, String(body.guardianPhone || "").trim() || null, String(body.guardianEmail || "").trim() || null, String(body.address || "").trim() || null, String(body.enrollmentNotes || "").trim() || null, currentClassId, body.status === "inactive" ? "inactive" : "active", auth.user.id, now, id).run();
       if (!result.meta.changes) return json({ error: "Aluno não encontrado." }, 404);
-      if (Number(existing.class_id) !== classId) {
-        const now = Date.now();
-        await db.prepare(`UPDATE student_class_history SET result_status = 'transferred', left_at = ?, updated_at = ? WHERE student_id = ? AND class_id = ? AND left_at IS NULL`).bind(now, now, id, existing.class_id).run();
-        await db.prepare(`INSERT OR IGNORE INTO student_class_history (student_id, class_id, school_year, grade_level_snapshot, class_name_snapshot, result_status, joined_at, promoted_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`)
-          .bind(id, classId, targetClass.school_year, targetClass.grade_level, targetClass.name, now, auth.user.id, now, now).run();
-      }
-      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, updated_by = ?, updated_at = ? WHERE student_id = ?`).bind(registration, name, String(body.birthDate || "").trim(), String(body.guardianName || "").trim(), String(body.guardianPhone || "").trim(), auth.user.id, Date.now(), id).run();
+      await db.prepare(`UPDATE student_class_history SET class_id = ?, school_year = ?, grade_level_snapshot = ?, class_name_snapshot = ?, updated_at = ? WHERE id = ?`).bind(classId, targetClass.school_year, targetClass.grade_level, targetClass.name, now, membership.id).run();
+      await db.prepare(`UPDATE enrollments SET registration = ?, student_name = ?, birth_date = ?, guardian_name = ?, guardian_phone = ?, updated_by = ?, updated_at = ? WHERE student_id = ?`).bind(registration, name, String(body.birthDate || "").trim(), String(body.guardianName || "").trim(), String(body.guardianPhone || "").trim(), auth.user.id, now, id).run();
+      const enrollment = await db.prepare(`SELECT id FROM enrollments WHERE student_id = ? AND school_year = ? AND status != 'cancelled' LIMIT 1`).bind(id, membership.school_year).first();
+      const grade = await gradeForClass(db, targetClass, auth.user.id);
+      if (enrollment && grade) await db.prepare(`UPDATE enrollments SET grade_id = ?, grade_name_snapshot = ?, class_id = ?, class_name_snapshot = ?, school_year = ?, notes = COALESCE(?, notes), updated_by = ?, updated_at = ? WHERE id = ?`).bind(grade.id, grade.name, classId, targetClass.name, targetClass.school_year, String(body.enrollmentNotes || "").trim() || null, auth.user.id, now, enrollment.id).run();
+      const saved = await db.prepare(`SELECT * FROM students WHERE id = ?`).bind(id).first(); const savedMembership = await db.prepare(`SELECT * FROM student_class_history WHERE id = ?`).bind(membership.id).first();
+      if (!enrollment) await ensureStudentEnrollment(db, auth.user, saved, targetClass, body.enrollmentNotes);
+      await recordStudentChange(db, id, membership.id, "updated", auth.user.id, before, studentSnapshot(saved, savedMembership));
       await audit(db, auth.user.id, "student_updated", id, `${registration} • ${name}`); return json({ ok: true });
     } catch (error) {
       if (String(error).includes("UNIQUE")) return json({ error: "Essa matrícula já está cadastrada." }, 409);
@@ -1127,7 +1209,7 @@ async function handleApi(request, env, path) {
   if (studentMatch && request.method === "DELETE") {
     const auth = await requireManager(request, db); if (auth.error) return auth.error;
     const id = Number(studentMatch[1]); const existing = await db.prepare(`SELECT registration, name FROM students WHERE id = ?`).bind(id).first(); if (!existing) return json({ error: "Aluno não encontrado." }, 404);
-    await db.prepare(`DELETE FROM students WHERE id = ?`).bind(id).run(); await audit(db, auth.user.id, "student_deleted", id, `${existing.registration} • ${existing.name}`); return json({ ok: true });
+    await db.prepare(`UPDATE students SET status = 'inactive', updated_by = ?, updated_at = ? WHERE id = ?`).bind(auth.user.id, Date.now(), id).run(); await audit(db, auth.user.id, "student_inactivated", id, `${existing.registration} • ${existing.name} • histórico preservado`); return json({ ok: true, deactivated: true });
   }
 
   const studentHistoryMatch = path.match(/^\/api\/students\/(\d+)\/history$/);
@@ -1136,8 +1218,11 @@ async function handleApi(request, env, path) {
     await ensureAcademicData(db, auth.user.id); const id = Number(studentHistoryMatch[1]);
     const student = await db.prepare(`SELECT s.*, c.name AS class_name FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?`).bind(id).first();
     if (!student) return json({ error: "Aluno não encontrado." }, 404);
-    const history = await db.prepare(`SELECT h.*, u.name AS promoted_by_name FROM student_class_history h LEFT JOIN users u ON u.id = h.promoted_by WHERE h.student_id = ? ORDER BY h.school_year DESC, h.joined_at DESC`).bind(id).all();
-    return json({ student, history: history.results });
+    const [history, changes] = await db.batch([
+      db.prepare(`SELECT h.*, u.name AS promoted_by_name FROM student_class_history h LEFT JOIN users u ON u.id = h.promoted_by WHERE h.student_id = ? ORDER BY h.school_year DESC, h.joined_at DESC`).bind(id),
+      db.prepare(`SELECT h.*, u.name AS actor_name FROM student_change_history h LEFT JOIN users u ON u.id = h.actor_user_id WHERE h.student_id = ? ORDER BY h.created_at DESC, h.id DESC`).bind(id),
+    ]);
+    return json({ student, history: history.results, changes: changes.results.map(item => ({ ...item, before_data: item.before_json ? JSON.parse(item.before_json) : null, after_data: item.after_json ? JSON.parse(item.after_json) : null })) });
   }
 
   const studentPromoteMatch = path.match(/^\/api\/students\/(\d+)\/promote$/);

@@ -83,6 +83,41 @@ assert.equal(database.prepare(`SELECT result_status FROM student_class_history W
 assert.equal(database.prepare(`SELECT COUNT(*) total FROM student_class_history WHERE student_id=2`).get().total, 2);
 const after = await api("/api/progressions");
 assert.equal(after.candidates.some(candidate => candidate.id === 1 && candidate.targetYear === 2027), false);
+const class2028 = await api("/api/classes", { method: "POST", body: JSON.stringify({ name: "3º Ano", gradeLevel: "3º Ano", shift: "Matutino", schoolYear: 2028, teacherName: "" }) });
+const nadine2026Membership = database.prepare(`SELECT id FROM student_class_history WHERE student_id=1 AND school_year=2026`).get();
+const nadineEdit = await api("/api/students/1", { method: "PUT", body: JSON.stringify({
+  membershipId: nadine2026Membership.id, registration: "NAD-001", name: "Nadine Silva", birthDate: "2021-03-10", classId: 1,
+  motherName: "Maria Silva", fatherName: "João Silva", guardianName: "Maria Silva", guardianPhone: "63988887777",
+  guardianEmail: "maria@example.com", address: "Rua das Flores, 10", enrollmentNotes: "Dados conferidos pela Gestão", status: "active",
+}) });
+assert.equal(nadineEdit.ok, true);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM students WHERE id=1`).get().total, 1);
+assert.equal(database.prepare(`SELECT name FROM students WHERE id=1`).get().name, "Nadine Silva");
+assert.equal(database.prepare(`SELECT guardian_email FROM students WHERE id=1`).get().guardian_email, "maria@example.com");
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM attendance_records WHERE student_id=1 AND school_year=2026`).get().total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM agenda_entries WHERE class_id=1 AND school_year=2026`).get().total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM enrollments WHERE student_id=1 AND school_year=2027`).get().total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM student_change_history WHERE student_id=1 AND action='updated'`).get().total, 1);
+const newStudent2028 = await api("/api/students", { method: "POST", body: JSON.stringify({
+  registration: "LIA-2028", name: "Lívia Nova", birthDate: "2019-02-15", classId: class2028.id, motherName: "Ana Nova",
+  guardianName: "Ana Nova", guardianPhone: "63977776666", guardianEmail: "ana@example.com", address: "Avenida Central, 20",
+}) });
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM students WHERE id=?`).get(newStudent2028.id).total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM student_class_history WHERE student_id=? AND school_year=2028`).get(newStudent2028.id).total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM enrollments WHERE student_id=? AND school_year=2028 AND status='draft'`).get(newStudent2028.id).total, 1);
+const nadineLink2028 = await api("/api/students", { method: "POST", body: JSON.stringify({ existingStudentId: 1, classId: class2028.id, enrollmentNotes: "Ingresso no 3º Ano em 2028" }) });
+assert.equal(nadineLink2028.linkedExisting, true);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM students WHERE registration='NAD-001'`).get().total, 1);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM student_class_history WHERE student_id=1`).get().total, 3);
+assert.equal(database.prepare(`SELECT COUNT(*) total FROM enrollments WHERE student_id=1 AND school_year=2028`).get().total, 1);
+const yearFolders = await api("/api/school-years");
+assert.deepEqual(yearFolders.years.map(item => item.year), [2026, 2027, 2028, 2029]);
+assert.equal(yearFolders.years.find(item => item.year === 2028).student_count, 2);
+const students2028 = await api("/api/students?school_year=2028");
+assert.equal(students2028.students.length, 2);
+assert.equal(students2028.students.every(item => item.school_year === 2028), true);
+const teacherStudentWrite = await requestApi("/api/students", { method: "POST", body: JSON.stringify({ registration: "NO", name: "Não autorizado", classId: class2028.id }) }, teacherToken);
+assert.equal(teacherStudentWrite.response.status, 403);
 const generalAgenda = await api("/api/agendas", { method: "POST", body: JSON.stringify({ date: "2026-11-01", classId: 1, subjectId: null, noAgenda: false, agenda: "", materials: [] }) });
 assert.equal(generalAgenda.agenda.subject_id, null);
 assert.equal(generalAgenda.agenda.content, "Agenda registrada");
@@ -182,4 +217,4 @@ assert.equal(managerUsers.response.status, 200);
 assert.equal(managerUsers.body.users.find(user => user.username === "gestao").role, "Gestão Escolar");
 const managerProgressions = await requestApi("/api/progressions", {}, managerToken);
 assert.equal(managerProgressions.response.status, 200);
-console.log("Integration tests passed: persistent teacher assignments, strict server scope, progression/history, multidisciplinary agendas, repeated agenda edits, permanent deletion with audit trail, and read-only teacher library.");
+console.log("Integration tests passed: persistent teacher assignments, student profile editing with audit, unique annual links and 2028 enrollment, year folders, preserved history, strict permissions, agendas, and library.");
